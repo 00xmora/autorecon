@@ -51,8 +51,8 @@ Run the autorecon.sh script with a project name and one or more domains:
 ###Output
 The results will be saved in the following directory structure:
 
-    ```bash
-           MyProject/
+    ```
+          MyProject/
        ├── domain1.com/
        │   ├── amass.txt
        │   ├── subfinder.txt
@@ -77,13 +77,13 @@ Domains: One or more domains to perform reconnaissance on.
 
 ### Example
 
-    ```bash
+       ```bash
        ./autorecon.sh MyProject example.com
        ./autorecon.sh MyProject example1.com example2.com
        ```
 ### Output
 
-    ```bash
+          ```bash
           [+] Project directory created: MyProject
       
           [+] Processing domain: example.com
@@ -100,7 +100,7 @@ Domains: One or more domains to perform reconnaissance on.
           [+] Aquatone inspection completed. Results saved to aquatone/ directory
           [+] Done processing domain: example.com. Results are saved in the 'MyProject/example.com' directory.
           [+] All domains processed. Results are saved in the 'MyProject' directory.
-    ```
+          ```
 ### Contributing
 Contributions are welcome! If you'd like to contribute to AutoRecon, please follow these steps:
 Fork the repository.
