@@ -51,26 +51,26 @@ Run the autorecon.sh script with a project name and one or more domains:
 ###Output
 The results will be saved in the following directory structure:
 
-    ```bash
-        MyProject/
-    ├── domain1.com/
-    │   ├── amass.txt
-    │   ├── subfinder.txt
-    │   ├── sublist3r.txt
-    │   ├── domains.txt
-    │   ├── domain.live
-    │   ├── ffuf.txt
-    │   ├── domains
-    │   ├── wayback.txt
-    │   ├── katana.txt
-    │   ├── waymore.txt
-    │   ├── crawley.txt
-    │   ├── waybackrobots.txt
-    │   ├── urls.txt
-    │   └── aquatone/
-    └── domain2.com/
-        └── ...
-
+    `
+           MyProject/
+       ├── domain1.com/
+       │   ├── amass.txt
+       │   ├── subfinder.txt
+       │   ├── sublist3r.txt
+       │   ├── domains.txt
+       │   ├── domain.live
+       │   ├── ffuf.txt
+       │   ├── domains
+       │   ├── wayback.txt
+       │   ├── katana.txt
+       │   ├── waymore.txt
+       │   ├── crawley.txt
+       │   ├── waybackrobots.txt
+       │   ├── urls.txt
+       │   └── aquatone/
+       └── domain2.com/
+           └── ...
+      `
 ### Options
 Project Name: The name of the project directory where results will be saved.
 Domains: One or more domains to perform reconnaissance on.
@@ -78,40 +78,40 @@ Domains: One or more domains to perform reconnaissance on.
 ### Example
 
     ```bash
-    ./autorecon.sh MyProject example.com
-    ./autorecon.sh MyProject example1.com example2.com
+       ./autorecon.sh MyProject example.com
+       ./autorecon.sh MyProject example1.com example2.com
 ### Output
 
     ```bash
-    [+] Project directory created: MyProject
+       [+] Project directory created: MyProject
+   
+       [+] Processing domain: example.com
+       [+] Directory created: MyProject/example.com
+       [+] Running passive subdomain enumeration...
+       [+] Passive subdomain enumeration completed. Results saved to domains.txt
+       [+] Filtering live domains...
+       [+] Live domains filtered. Results saved to domain.live
+       [+] Running active subdomain enumeration...
+       [+] Active subdomain enumeration completed. Results saved to domains
+       [+] Running URL discovery and crawling...
+       [+] URL discovery and crawling completed. Results saved to urls.txt
+       [+] Running Aquatone for inspection...
+       [+] Aquatone inspection completed. Results saved to aquatone/ directory
+       [+] Done processing domain: example.com. Results are saved in the 'MyProject/example.com' directory.
+       [+] All domains processed. Results are saved in the 'MyProject' directory.
 
-    [+] Processing domain: example.com
-    [+] Directory created: MyProject/example.com
-    [+] Running passive subdomain enumeration...
-    [+] Passive subdomain enumeration completed. Results saved to domains.txt
-    [+] Filtering live domains...
-    [+] Live domains filtered. Results saved to domain.live
-    [+] Running active subdomain enumeration...
-    [+] Active subdomain enumeration completed. Results saved to domains
-    [+] Running URL discovery and crawling...
-    [+] URL discovery and crawling completed. Results saved to urls.txt
-    [+] Running Aquatone for inspection...
-    [+] Aquatone inspection completed. Results saved to aquatone/ directory
-    [+] Done processing domain: example.com. Results are saved in the 'MyProject/example.com' directory.
-    [+] All domains processed. Results are saved in the 'MyProject' directory.
-
-###Contributing
+### Contributing
 Contributions are welcome! If you'd like to contribute to AutoRecon, please follow these steps:
 Fork the repository.
 Create a new branch for your feature or bugfix.
 Commit your changes.
 Submit a pull request.
 
-###Contact
+### Contact
 For questions, feedback, or support, feel free to reach out:
 Twitter: @omarsamy10
 Email: omarsselim00@gmail.com
-###Enjoy using AutoRecon! 🚀
+### Enjoy using AutoRecon! 🚀
 
 
     
