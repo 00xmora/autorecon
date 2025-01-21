@@ -70,16 +70,17 @@ The results will be saved in the following directory structure:
     │   └── aquatone/
     └── domain2.com/
         └── ...
-###Options
+
+### Options
 Project Name: The name of the project directory where results will be saved.
 Domains: One or more domains to perform reconnaissance on.
 
-###Example
+### Example
 
     ```bash
     ./autorecon.sh MyProject example.com
     ./autorecon.sh MyProject example1.com example2.com
-###Output
+### Output
 
     ```bash
     [+] Project directory created: MyProject
