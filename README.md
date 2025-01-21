@@ -84,23 +84,23 @@ Domains: One or more domains to perform reconnaissance on.
 ### Output
 
     ```bash
-       [+] Project directory created: MyProject
-   
-       [+] Processing domain: example.com
-       [+] Directory created: MyProject/example.com
-       [+] Running passive subdomain enumeration...
-       [+] Passive subdomain enumeration completed. Results saved to domains.txt
-       [+] Filtering live domains...
-       [+] Live domains filtered. Results saved to domain.live
-       [+] Running active subdomain enumeration...
-       [+] Active subdomain enumeration completed. Results saved to domains
-       [+] Running URL discovery and crawling...
-       [+] URL discovery and crawling completed. Results saved to urls.txt
-       [+] Running Aquatone for inspection...
-       [+] Aquatone inspection completed. Results saved to aquatone/ directory
-       [+] Done processing domain: example.com. Results are saved in the 'MyProject/example.com' directory.
-       [+] All domains processed. Results are saved in the 'MyProject' directory.
-         ```
+          [+] Project directory created: MyProject
+      
+          [+] Processing domain: example.com
+          [+] Directory created: MyProject/example.com
+          [+] Running passive subdomain enumeration...
+          [+] Passive subdomain enumeration completed. Results saved to domains.txt
+          [+] Filtering live domains...
+          [+] Live domains filtered. Results saved to domain.live
+          [+] Running active subdomain enumeration...
+          [+] Active subdomain enumeration completed. Results saved to domains
+          [+] Running URL discovery and crawling...
+          [+] URL discovery and crawling completed. Results saved to urls.txt
+          [+] Running Aquatone for inspection...
+          [+] Aquatone inspection completed. Results saved to aquatone/ directory
+          [+] Done processing domain: example.com. Results are saved in the 'MyProject/example.com' directory.
+          [+] All domains processed. Results are saved in the 'MyProject' directory.
+    ```
 ### Contributing
 Contributions are welcome! If you'd like to contribute to AutoRecon, please follow these steps:
 Fork the repository.
