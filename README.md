@@ -84,7 +84,6 @@ Domains: One or more domains to perform reconnaissance on.
 
  ```bash
  [+] Project directory created: MyProject
-
  [+] Processing domain: example.com
  [+] Directory created: MyProject/example.com
  [+] Running passive subdomain enumeration...
@@ -108,8 +107,8 @@ Commit your changes.
 Submit a pull request.
 
 ### Contact
-For questions, feedback, or support, feel free to reach out:
-Twitter: @omarsamy10
+For questions, feedback, or support, feel free to reach out: 
+@omarsamy10
 Email: omarsselim00@gmail.com
 ### Enjoy using AutoRecon! 🚀
 
