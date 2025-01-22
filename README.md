@@ -112,7 +112,7 @@ AutoRecon is licensed under the MIT License. See the LICENSE file for details.
 Acknowledgments
 Thanks to the developers of the tools integrated into AutoRecon.
 
-Inspired by various open-source reconnaissance tools and workflows.
+Inspired by various open-source reconnaissance tools and workflows. 
 
 Contact
 For questions, feedback, or support, feel free to reach out:
