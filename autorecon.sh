@@ -67,7 +67,7 @@ for TARGET in "$@"; do
 
     # Filter live domains
     echo -e "${YELLOW}[+] Filtering live domains...${NC}"
-    cat domains.txt | httpx -o domain.live > /dev/null 2>&1
+    cat domains.txt | httpx -ports 80,443,8080,8443,8000,8888,3000,5000,9000,8081,7443,9443,81,82,83,4443,8880,10000 -silent -o domain.live > /dev/null 2>&1
     rm  domains.txt
     echo -e "${GREEN}[+] Live domains filtered. Results saved to domain.live${NC}"
 
