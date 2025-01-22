@@ -54,8 +54,7 @@ for TARGET in "$@"; do
     echo -e "${YELLOW}[+] Running passive subdomain enumeration...${NC}"
     amass enum -active -d $TARGET -o amassoutput.txt > /dev/null 2>&1 &
     subfinder -d $TARGET -o subfinder.txt > /dev/null 2>&1 &
-    sublist3r -d $TARGET -o sublist3r.txt > /dev/null 2>&1 &
-
+    sublist3r -d $TARGET -o sublist3r.txt > /dev/null 2>&1 
     # Wait for all passive enumeration tools to finish
     wait
 
@@ -67,7 +66,7 @@ for TARGET in "$@"; do
 
     # Filter live domains
     echo -e "${YELLOW}[+] Filtering live domains...${NC}"
-    cat domains.txt | httpx -ports 80,443,8080,8443,8000,8888,3000,5000,9000,8081,7443,9443,81,82,83,4443,8880,10000 -silent -o domain.live > /dev/null 2>&1
+    cat domains.txt | httpx -ports 80,443,8080,8443,4443 -silent -o domain.live > /dev/null 2>&1
     rm  domains.txt
     echo -e "${GREEN}[+] Live domains filtered. Results saved to domain.live${NC}"
 
@@ -82,10 +81,10 @@ for TARGET in "$@"; do
 
     # Step 3: URL Discovery and Crawling
     echo -e "${YELLOW}[+] Running URL discovery and crawling...${NC}"
-    cat domain.live | waybackurls > wayback.txt & 
-    katana -list domain.live -o katana.txt > /dev/null 2>&1 &
-    cat domain.live | waymore > waymore.txt &
-    cat domain.live | waybackrobots > waybackrobots.txt &
+    cat domains | waybackurls > wayback.txt & 
+    katana -list domains -o katana.txt > /dev/null 2>&1 &
+    cat domains | waymore > waymore.txt &
+    cat domains | waybackrobots > waybackrobots.txt &
 
     # Wait for all URL discovery tools to finish
     wait
