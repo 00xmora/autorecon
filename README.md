@@ -106,8 +106,19 @@ Create a new branch for your feature or bugfix.
 Commit your changes.
 Submit a pull request.
 
-### Contact
-For questions, feedback, or support, feel free to reach out: 
-@omarsamy10
-Email: omarsselim00@gmail.com
-### Enjoy using AutoRecon! 🚀
+License
+AutoRecon is licensed under the MIT License. See the LICENSE file for details.
+
+Acknowledgments
+Thanks to the developers of the tools integrated into AutoRecon.
+
+Inspired by various open-source reconnaissance tools and workflows.
+
+Contact
+For questions, feedback, or support, feel free to reach out:
+
+Twitter: @omarsamy10
+
+Email: omar@example.com
+
+Enjoy using AutoRecon! 🚀
