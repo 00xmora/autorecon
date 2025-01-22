@@ -50,7 +50,7 @@ for TARGET in "$@"; do
 
     echo -e "${BLUE}[+] Directory created: $PROJECT_NAME/$TARGET${NC}"
 
-    # Step 1: Passive Subdomain Enumeration  
+    # Step 1: Passive Subdomain Enumeration   
     echo -e "${YELLOW}[+] Running passive subdomain enumeration...${NC}"
     amass enum -active -d $TARGET -o amassoutput.txt > /dev/null 2>&1 &
     subfinder -d $TARGET -o subfinder.txt > /dev/null 2>&1 &
