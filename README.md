@@ -35,72 +35,72 @@ AutoRecon is a powerful automated reconnaissance tool designed to simplify the p
    ```bash
    git clone https://github.com/yourusername/autorecon.git
    cd autorecon
-### Make the installation script executable:
-    ```bash
-    chmod +x install.sh
-### Run the installation script:
-    ```bash
+2. Make the installation script executable:
+   ```bash
+   chmod +x install.sh
+
+3. Run the installation script:
+      ```bash
     ./install.sh
     
-###Usage
-Run the autorecon.sh script with a project name and one or more domains:
-    
-    ```bash 
-    ./autorecon.sh MyProject domain1.com domain2.com
-      ```
-###Output
-The results will be saved in the following directory structure:
+##Usage
 
+   Run the autorecon.sh script with a project name and one or more domains:
+   ```bash 
+   ./autorecon.sh MyProject domain1.com domain2.com
+   ```
+##Output
+   The results will be saved in the following directory structure:
     ```
-          MyProject/
-       ├── domain1.com/
-       │   ├── amass.txt
-       │   ├── subfinder.txt
-       │   ├── sublist3r.txt
-       │   ├── domains.txt
-       │   ├── domain.live
-       │   ├── ffuf.txt
-       │   ├── domains
-       │   ├── wayback.txt
-       │   ├── katana.txt
-       │   ├── waymore.txt
-       │   ├── crawley.txt
-       │   ├── waybackrobots.txt
-       │   ├── urls.txt
-       │   └── aquatone/
-       └── domain2.com/
-           └── ...
-      ```
-### Options
+    MyProject/
+    ├── domain1.com/
+    │   ├── amass.txt
+    │   ├── subfinder.txt
+    │   ├── sublist3r.txt
+    │   ├── domains.txt
+    │   ├── domain.live
+    │   ├── ffuf.txt
+    │   ├── domains
+    │   ├── wayback.txt
+    │   ├── katana.txt
+    │   ├── waymore.txt
+    │   ├── crawley.txt
+    │   ├── waybackrobots.txt
+    │   ├── urls.txt
+    │   └── aquatone/
+    └── domain2.com/
+        └── ...
+    ```
+## Options
 Project Name: The name of the project directory where results will be saved.
 Domains: One or more domains to perform reconnaissance on.
 
-### Example
+## Example
 
-       ```bash
-       ./autorecon.sh MyProject example.com
-       ./autorecon.sh MyProject example1.com example2.com
-       ```
+ ```bash
+ ./autorecon.sh MyProject example.com
+ ./autorecon.sh MyProject example1.com example2.com
+ ```
 ### Output
 
-          ```bash
-          [+] Project directory created: MyProject
-      
-          [+] Processing domain: example.com
-          [+] Directory created: MyProject/example.com
-          [+] Running passive subdomain enumeration...
-          [+] Passive subdomain enumeration completed. Results saved to domains.txt
-          [+] Filtering live domains...
-          [+] Live domains filtered. Results saved to domain.live
-          [+] Running active subdomain enumeration...
-          [+] Active subdomain enumeration completed. Results saved to domains
-          [+] Running URL discovery and crawling...
-          [+] URL discovery and crawling completed. Results saved to urls.txt
-          [+] Running Aquatone for inspection...
-          [+] Aquatone inspection completed. Results saved to aquatone/ directory
-          [+] Done processing domain: example.com. Results are saved in the 'MyProject/example.com' directory.
-          [+] All domains processed. Results are saved in the 'MyProject' directory.
-          ```
+ ```bash
+ [+] Project directory created: MyProject
+
+ [+] Processing domain: example.com
+ [+] Directory created: MyProject/example.com
+ [+] Running passive subdomain enumeration...
+ [+] Passive subdomain enumeration completed. Results saved to domains.txt
+ [+] Filtering live domains...
+ [+] Live domains filtered. Results saved to domain.live
+ [+] Running active subdomain enumeration...
+ [+] Active subdomain enumeration completed. Results saved to domains
+ [+] Running URL discovery and crawling...
+ [+] URL discovery and crawling completed. Results saved to urls.txt
+ [+] Running Aquatone for inspection...
+ [+] Aquatone inspection completed. Results saved to aquatone/ directory
+ [+] Done processing domain: example.com. Results are saved in the 'MyProject/example.com' directory.
+ [+] All domains processed. Results are saved in the 'MyProject' directory.
+ ```
 ### Contributing
 Contributions are welcome! If you'd like to contribute to AutoRecon, please follow these steps:
 Fork the repository.
