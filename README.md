@@ -51,26 +51,26 @@ AutoRecon is a powerful automated reconnaissance tool designed to simplify the p
    ```
 ##Output
    The results will be saved in the following directory structure:
-       ```
-       MyProject/
-       ├── domain1.com/
-       │   ├── amass.txt
-       │   ├── subfinder.txt
-       │   ├── sublist3r.txt
-       │   ├── domains.txt
-       │   ├── domain.live
-       │   ├── ffuf.txt
-       │   ├── domains
-       │   ├── wayback.txt
-       │   ├── katana.txt
-       │   ├── waymore.txt
-       │   ├── crawley.txt
-       │   ├── waybackrobots.txt
-       │   ├── urls.txt
-       │   └── aquatone/
-       └── domain2.com/
-           └── ...
-       ```
+   ```bash
+    MyProject/
+    ├── domain1.com/
+    │   ├── amass.txt
+    │   ├── subfinder.txt
+    │   ├── sublist3r.txt
+    │   ├── domains.txt
+    │   ├── domain.live
+    │   ├── ffuf.txt
+    │   ├── domains
+    │   ├── wayback.txt
+    │   ├── katana.txt
+    │   ├── waymore.txt
+    │   ├── crawley.txt
+    │   ├── waybackrobots.txt
+    │   ├── urls.txt
+    │   └── aquatone/
+    └── domain2.com/
+        └── ...
+   ```
 ## Options
 Project Name: The name of the project directory where results will be saved.
 Domains: One or more domains to perform reconnaissance on.
