@@ -52,7 +52,7 @@ for TARGET in "$@"; do
 
     # Step 1: Passive Subdomain Enumeration
     echo -e "${YELLOW}[+] Running passive subdomain enumeration...${NC}"
-    amass enum -passive -d $TARGET -o amass.txt > /dev/null 2>&1 &
+    amass enum -active -d $TARGET -o amassoutput.txt > /dev/null 2>&1 &
     subfinder -d $TARGET -o subfinder.txt > /dev/null 2>&1 &
     sublist3r -d $TARGET -o sublist3r.txt > /dev/null 2>&1 &
 
@@ -60,14 +60,15 @@ for TARGET in "$@"; do
     wait
 
     # Merge and sort results
+    cat amassoutput.txt |grep "(FQDN)" | awk '{print $1}' > amass.txt
     cat amass.txt subfinder.txt sublist3r.txt | sort -u > domains.txt
-
+    rm  amass.txt subfinder.txt sublist3r.txt 
     echo -e "${GREEN}[+] Passive subdomain enumeration completed. Results saved to domains.txt${NC}"
 
     # Filter live domains
     echo -e "${YELLOW}[+] Filtering live domains...${NC}"
     cat domains.txt | httpx -o domain.live > /dev/null 2>&1
-
+    rm  domains.txt
     echo -e "${GREEN}[+] Live domains filtered. Results saved to domain.live${NC}"
 
     # Step 2: Active Subdomain Enumeration
@@ -76,7 +77,7 @@ for TARGET in "$@"; do
 
     # Merge all subdomains
     cat domain.live ffuf.txt | sort -u > domains
-
+    rm  domain.live 
     echo -e "${GREEN}[+] Active subdomain enumeration completed. Results saved to domains${NC}"
 
     # Step 3: URL Discovery and Crawling
@@ -85,32 +86,18 @@ for TARGET in "$@"; do
     katana -list domain.live -o katana.txt > /dev/null 2>&1 &
     cat domain.live | waymore > waymore.txt &
     cat domain.live | waybackrobots > waybackrobots.txt &
-    echo "import scrapy 
-
-class UrlSpider(scrapy.Spider):
-    name = 'url_spider'
-    allowed_domains = ['$TARGET'] 
-    start_urls = ['http://$TARGET']
-
-    def parse(self, response):
-        urls = response.css('a::attr(href)').getall()
-        cleaned_urls = [response.urljoin(url) for url in urls if url]
-        with open('scrapy_urls.txt', 'a') as f:
-            for url in cleaned_urls:
-                f.write(url + '\n')
-" > url_spider.py && scrapy crawl url_spider
 
     # Wait for all URL discovery tools to finish
     wait
 
     # Merge all URL results and remove duplicates
-    cat wayback.txt katana.txt waymore.txt crawley.txt waybackrobots.txt | sort -u | uro > urls.txt
-
+    cat wayback.txt katana.txt waymore.txt waybackrobots.txt | sort -u | uro > urls.txt
+    rm  wayback.txt katana.txt waymore.txt waybackrobots.txt
     echo -e "${GREEN}[+] URL discovery and crawling completed. Results saved to urls.txt${NC}"
 
     # Step 4: Inspect results with Aquatone
     echo -e "${YELLOW}[+] Running Aquatone for inspection...${NC}"
-    cat domain.live | aquatone > /dev/null 2>&1 
+    cat domains | aquatone > /dev/null 2>&1 
 
     echo -e "${GREEN}[+] Aquatone inspection completed. Results saved to aquatone/ directory${NC}"
 
