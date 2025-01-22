@@ -92,7 +92,7 @@ else
     echo -e "${GREEN}${BOLD}[+] katana is already installed.${NC}"
 fi
 
-# Install Aquatone
+# Install Aquatone 
 if ! command_exists aquatone; then
     echo -e "${YELLOW}${BOLD}[+] Installing Aquatone...${NC}"
     wget https://github.com/michenriksen/aquatone/releases/download/v1.7.0/aquatone_linux_amd64_1.7.0.zip -O /tmp/aquatone.zip
