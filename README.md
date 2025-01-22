@@ -43,13 +43,12 @@ AutoRecon is a powerful automated reconnaissance tool designed to simplify the p
       ```bash
     ./install.sh
     
-##Usage
-
+## Usage
    Run the autorecon.sh script with a project name and one or more domains:
    ```bash 
    ./autorecon.sh MyProject domain1.com domain2.com
    ```
-##Output
+## Output
    The results will be saved in the following directory structure:
    ```bash
     MyProject/
