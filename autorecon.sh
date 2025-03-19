@@ -75,7 +75,7 @@ for TARGET in "$@"; do
 
     # Step 2: Active Subdomain Enumeration
     echo -e "${YELLOW}[+] Running active subdomain enumeration...${NC}"
-    ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt -u "https://FUZZ.$TARGET" -c -t 50 -mc all -fs 0 >> ffuf.txt 
+    ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt -u "https://FUZZ.$TARGET" -c -mc all -fs 0 >> ffuf.txt 
     # Merge all subdomains
     cat domain.live ffuf.txt | sort -u >> domains
     rm  domain.live 
