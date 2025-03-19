@@ -25,6 +25,9 @@ echo -e "${YELLOW}${BOLD}By: omar samy${NC}"
 echo -e "${BLUE}${BOLD}Twitter: @omarsamy10${NC}"
 echo -e "===================================================\n"
 
+# Enable error handling
+set -e
+
 # Check if project name and at least one domain are provided
 if [ -z "$1" ] || [ -z "$2" ]; then
     echo -e "${RED}${BOLD}Usage: $0 <project_name> <domain1> [domain2] [domain3] ...${NC}"
@@ -54,51 +57,44 @@ for TARGET in "$@"; do
     echo -e "${YELLOW}[+] Running passive subdomain enumeration...${NC}"
     amass enum -active -d $TARGET -o amassoutput.txt > /dev/null 2>&1 &
     subfinder -d $TARGET -o subfinder.txt > /dev/null 2>&1 &
-    sublist3r -d $TARGET -o sublist3r.txt > /dev/null 2>&1 
+    sublist3r -d $TARGET -o sublist3r.txt > /dev/null 2>&1 &
     # Wait for all passive enumeration tools to finish
     wait
 
     # Merge and sort results
-    cat amassoutput.txt |grep "(FQDN)" | awk '{print $1}' > amass.txt
-    cat amass.txt subfinder.txt sublist3r.txt | sort -u > domains.txt
+    cat amassoutput.txt |grep "(FQDN)" | awk '{print $1}' >> amass.txt
+    cat amass.txt subfinder.txt sublist3r.txt | sort -u >> domains.txt
     rm  amass.txt subfinder.txt sublist3r.txt 
     echo -e "${GREEN}[+] Passive subdomain enumeration completed. Results saved to domains.txt${NC}"
 
     # Filter live domains
     echo -e "${YELLOW}[+] Filtering live domains...${NC}"
-    cat domains.txt | httpx -ports 80,443,8080,8443,4443 -silent -o domain.live > /dev/null 2>&1
+    cat domains.txt | httpx -silent -o domain.live > /dev/null 2>&1
     rm  domains.txt
     echo -e "${GREEN}[+] Live domains filtered. Results saved to domain.live${NC}"
 
     # Step 2: Active Subdomain Enumeration
     echo -e "${YELLOW}[+] Running active subdomain enumeration...${NC}"
-    ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt -u "https://FUZZ.$TARGET" -c -t 30 -mc all -fs 0 -o ffuf.txt > /dev/null 2>&1
-
+    ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt -u "https://FUZZ.$TARGET" -c -t 50 -mc all -fs 0 >> ffuf.txt 
     # Merge all subdomains
-    cat domain.live ffuf.txt | sort -u > domains
+    cat domain.live ffuf.txt | sort -u >> domains
     rm  domain.live 
     echo -e "${GREEN}[+] Active subdomain enumeration completed. Results saved to domains${NC}"
 
     # Step 3: URL Discovery and Crawling
     echo -e "${YELLOW}[+] Running URL discovery and crawling...${NC}"
-    cat domains | waybackurls > wayback.txt & 
+    cat domains | waybackurls >> wayback.txt & 
     katana -list domains -o katana.txt > /dev/null 2>&1 &
-    cat domains | waymore > waymore.txt &
-    cat domains | waybackrobots > waybackrobots.txt &
+    cat domains | waymore >> waymore.txt &
+    echo $TARGET | waybackrobots -recent >> waybackrobots.txt &
 
     # Wait for all URL discovery tools to finish
     wait
 
     # Merge all URL results and remove duplicates
-    cat wayback.txt katana.txt waymore.txt waybackrobots.txt | sort -u | uro > urls.txt
+    cat wayback.txt katana.txt waymore.txt waybackrobots.txt | sort -u | uro >> urls.txt
     rm  wayback.txt katana.txt waymore.txt waybackrobots.txt
     echo -e "${GREEN}[+] URL discovery and crawling completed. Results saved to urls.txt${NC}"
-
-    # Step 4: Inspect results with Aquatone
-    echo -e "${YELLOW}[+] Running Aquatone for inspection...${NC}"
-    cat domains | aquatone > /dev/null 2>&1 
-
-    echo -e "${GREEN}[+] Aquatone inspection completed. Results saved to aquatone/ directory${NC}"
 
     echo -e "${MAGENTA}${BOLD}[+] Done processing domain: $TARGET. Results are saved in the '$PROJECT_NAME/$TARGET' directory.${NC}"
 
