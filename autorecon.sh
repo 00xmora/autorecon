@@ -84,7 +84,7 @@ for TARGET in "$@"; do
     # Step 3: URL Discovery and Crawling
     echo -e "${YELLOW}[+] Running URL discovery and crawling...${NC}"
     cat domains | waybackurls >> wayback.txt & 
-    katana -list domains -o katana.txt > /dev/null 2>&1 &
+    katana -list domains -d 5 -jc -o katana.txt > /dev/null 2>&1 &
     cat domains | waymore >> waymore.txt &
     echo $TARGET | waybackrobots -recent >> waybackrobots.txt &
 
