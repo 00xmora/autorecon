@@ -19,10 +19,15 @@ echo -e "${YELLOW}${BOLD}[+] Updating package lists...${NC}"
 sudo apt update
 
 echo -e "${YELLOW}${BOLD}[+] Installing necessary packages...${NC}"
-sudo apt install -y git curl wget python3 python3-pip python3-venv golang libcurl4-openssl-dev libssl-dev
+sudo apt install -y git curl wget python3 python3-venv pipx golang libcurl4-openssl-dev libssl-dev unzip
 
-pip install --upgrade pip setuptools
-pip install scrapy waymore uro
+pipx ensurepath
+
+# Install Python-based tools using pipx
+echo -e "${YELLOW}${BOLD}[+] Installing Python-based tools with pipx...${NC}"
+pipx install waymore
+pipx install uro
+pipx install waybackrobots
 
 # Install essential tools
 TOOLS=(amass subfinder sublist3r httpx ffuf waybackurls katana aquatone seclists)
