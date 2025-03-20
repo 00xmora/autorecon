@@ -27,7 +27,11 @@ pipx ensurepath
 echo -e "${YELLOW}${BOLD}[+] Installing Python-based tools with pipx...${NC}"
 pipx install waymore
 pipx install uro
-pipx install waybackrobots
+
+# Install waybackrobots using Go
+echo -e "${YELLOW}${BOLD}[+] Installing waybackrobots using Go...${NC}"
+go install github.com/mhmdiaa/waybackrobots@latest
+sudo cp ~/go/bin/waybackrobots /usr/local/bin/
 
 # Install essential tools
 TOOLS=(amass subfinder sublist3r httpx ffuf waybackurls katana aquatone seclists)
