@@ -55,14 +55,17 @@ for TARGET in "$@"; do
 
     # Step 1: Passive Subdomain Enumeration   
     echo -e "${YELLOW}[+] Running passive subdomain enumeration...${NC}"
-    amass enum -active -d $TARGET -o amassoutput.txt > /dev/null 2>&1 &
+    amass enum -d $TARGET -o amassoutput.txt > /dev/null 2>&1 &
     subfinder -d $TARGET -o subfinder.txt > /dev/null 2>&1 &
     sublist3r -d $TARGET -o sublist3r.txt > /dev/null 2>&1 &
+    dnsenum $TARGET >> dnsenum.txt 2>&1 &
     # Wait for all passive enumeration tools to finish
     wait
 
     # Merge and sort results
     cat amassoutput.txt |grep "(FQDN)" | awk '{print $1}' >> amass.txt
+    # Extract subdomains from dnsenum output (from "Brute forcing" section)
+    grep -Eo '\b[A-Za-z0-9.-]+\.${TARGET}\b' dnsenum.txt | sort -u >> domains.txt
     cat amass.txt subfinder.txt sublist3r.txt | sort -u >> domains.txt
     rm  amass.txt subfinder.txt sublist3r.txt 
     echo -e "${GREEN}[+] Passive subdomain enumeration completed. Results saved to domains.txt${NC}"
