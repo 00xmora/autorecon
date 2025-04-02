@@ -7,6 +7,7 @@ import re
 import time
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+from concurrent.futures import ThreadPoolExecutor
 
 # Define colors
 RED = '\033[0;31m'
@@ -32,9 +33,12 @@ def print_banner():
     print(f"{BLUE}{BOLD}Twitter: @omarsamy10{NC}")
     print("===================================================\n")
 
-def run_command(command, silent=False):
+def run_command(command, silent=False, output_file=None):
     try:
-        if silent:
+        if silent and output_file:
+            with open(output_file, 'w') as f:
+                subprocess.run(command, shell=True, check=True, stdout=f, stderr=subprocess.DEVNULL)
+        elif silent:
             subprocess.run(command, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             subprocess.run(command, shell=True, check=True)
@@ -45,7 +49,6 @@ def run_command(command, silent=False):
 def setup_project(project_name):
     project_path = Path(project_name)
     project_path.mkdir(parents=True, exist_ok=True)
-    os.chdir(project_path)
     print(f"{GREEN}{BOLD}[+] Project directory created: {project_name}{NC}")
     return project_path
 
@@ -56,26 +59,40 @@ def setup_domain_directory(project_path, domain):
     print(f"{BLUE}[+] Directory created: {project_path}/{domain}{NC}")
     return target_path
 
-def passive_subdomain_enum(domain):
-    print(f"{YELLOW}[+] Running passive subdomain enumeration...{NC}")
-    processes = [
-        f"amass enum -d {domain} -o amassoutput.txt",
-        f"subfinder -d {domain} -o subfinder.txt",
-        f"sublist3r -d {domain} -o sublist3r.txt",
-        f"dnsenum {domain} > dnsenum.txt 2>&1"
+def passive_subdomain_enum(domain, threads=20):
+    print(f"{YELLOW}[+] Running passive subdomain enumeration with {threads} threads...{NC}")
+    commands = [
+        (f"amass enum -d {domain} -o amassoutput.txt", "amassoutput.txt"),
+        (f"subfinder -d {domain} -o subfinder.txt", "subfinder.txt"),
+        (f"sublist3r -d {domain} -o sublist3r.txt", "sublist3r.txt")
     ]
-    for cmd in processes:
-        run_command(cmd, silent=True)
     
+    # Run commands concurrently
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = {executor.submit(run_command, cmd, True, outfile): outfile 
+                  for cmd, outfile in commands}
+        for future in futures:
+            try:
+                future.result()  # Wait for completion and catch exceptions
+            except Exception as e:
+                print(f"{RED}Error in thread for {futures[future]}: {e}{NC}")
+    
+    # Process results
     with open("amassoutput.txt") as f:
         amass = [line.split()[0] for line in f if "(FQDN)" in line]
-    with open("dnsenum.txt") as f:
-        dnsenum = [line.strip() for line in f if domain in line and line.strip().endswith(".")]
+    with open("subfinder.txt") as f:
+        subfinder = [line.strip() for line in f]
+    with open("sublist3r.txt") as f:
+        sublist3r = [line.strip() for line in f]
     
+    # Combine and deduplicate
+    all_subdomains = set(amass + subfinder + sublist3r)
     with open("domains.txt", "w") as f:
-        for sub in set(amass + dnsenum):
+        for sub in all_subdomains:
             f.write(f"{sub}\n")
-    for file in ["amassoutput.txt", "subfinder.txt", "sublist3r.txt", "dnsenum.txt"]:
+    
+    # Clean up
+    for file in ["amassoutput.txt", "subfinder.txt", "sublist3r.txt"]:
         if os.path.exists(file):
             os.remove(file)
     print(f"{GREEN}[+] Passive subdomain enumeration completed{NC}")
@@ -136,16 +153,15 @@ def normalize_endpoint(endpoint, base_url):
     base_domain = f"{parsed_base.scheme}://{parsed_base.netloc}"
     
     if endpoint.startswith(('http://', 'https://')):
-        return endpoint  # Already a full URL
+        return endpoint
     elif endpoint.startswith('/'):
-        return urljoin(base_domain, endpoint)  # Absolute path, prepend base domain
+        return urljoin(base_domain, endpoint)
     elif '.' in endpoint and not endpoint.startswith('/'):
-        # Likely a subdomain or full domain without protocol (e.g., api.example.com/path)
         if not endpoint.startswith(('http://', 'https://')):
             return f"https://{endpoint}"
         return endpoint
     else:
-        return urljoin(base_domain, endpoint)  # Relative path, resolve with base URL
+        return urljoin(base_domain, endpoint)
 
 def jslinks(domains, output="js_endpoints.txt", recursive=False, headers=None):
     default_headers = {
@@ -157,7 +173,6 @@ def jslinks(domains, output="js_endpoints.txt", recursive=False, headers=None):
                    [d for d in domains if d.startswith(('http://', 'https://'))]
     
     found_endpoints = set()
-    # Load existing endpoints if file exists
     if os.path.exists(output):
         with open(output, "r") as f:
             found_endpoints.update(line.strip() for line in f if line.strip())
@@ -172,7 +187,6 @@ def jslinks(domains, output="js_endpoints.txt", recursive=False, headers=None):
             if js not in visited_js:
                 visited_js.add(js)
                 endpoints = extract_endpoints(js, headers)
-                # Normalize endpoints with the JS file's base URL
                 normalized_endpoints = {normalize_endpoint(ep, js) for ep in endpoints}
                 found_endpoints.update(normalized_endpoints)
                 if recursive:
@@ -181,7 +195,6 @@ def jslinks(domains, output="js_endpoints.txt", recursive=False, headers=None):
                             queue.append(endpoint)
         time.sleep(1)
     
-    # Sort and write (append mode if file existed, otherwise overwrite)
     with open(output, "w") as f:
         f.write("\n".join(sorted(found_endpoints)))
     print(f"{GREEN}[+] JS endpoints saved to {output} (sorted and deduplicated){NC}")
@@ -191,16 +204,13 @@ def jslinks(domains, output="js_endpoints.txt", recursive=False, headers=None):
 def crawl_urls(domain, domains_list, recursive=False, headers=None):
     print(f"{YELLOW}[+] Running URL discovery and crawling...{NC}")
     
-    # Run standard crawling tools
     run_command(f"cat domains | waybackurls > wayback.txt", silent=True)
     run_command(f"katana -list domains -d 5 -jc -o katana.txt", silent=True)
     run_command(f"cat domains | waymore > waymore.txt", silent=True)
     run_command(f"echo {domain} | waybackrobots -recent > waybackrobots.txt", silent=True)
     
-    # Run JS links crawling
     jslinks(domains=domains_list, output="js_endpoints.txt", recursive=recursive, headers=headers)
     
-    # Merge all results, sort, and deduplicate
     all_urls = set()
     for file in ["wayback.txt", "katana.txt", "waymore.txt", "waybackrobots.txt", "js_endpoints.txt"]:
         if os.path.exists(file):
@@ -210,13 +220,12 @@ def crawl_urls(domain, domains_list, recursive=False, headers=None):
     with open("urls.txt", "w") as f:
         f.write("\n".join(sorted(all_urls)))
     
-    # Clean up temporary files
     for file in ["wayback.txt", "katana.txt", "waymore.txt", "waybackrobots.txt", "js_endpoints.txt"]:
         if os.path.exists(file):
             os.remove(file)
     print(f"{GREEN}[+] URL discovery and crawling completed (sorted and deduplicated){NC}")
 
-def autorecon(project_name=None, domains=None, crawl=False, recursive=False, headers=None):
+def autorecon(project_name=None, domains=None, crawl=False, recursive=False, headers=None, threads=4):
     print_banner()
     
     if not project_name:
@@ -224,7 +233,7 @@ def autorecon(project_name=None, domains=None, crawl=False, recursive=False, hea
         return
     
     project_path = setup_project(project_name)
-    
+    time.sleep(2)
     if not domains and not crawl:
         print(f"{YELLOW}[+] No domains (-d) or crawling (-c) requested. Nothing to do.{NC}")
         return
@@ -237,12 +246,10 @@ def autorecon(project_name=None, domains=None, crawl=False, recursive=False, hea
             print(f"{CYAN}{BOLD}\n[+] Processing domain: {domain}{NC}")
             setup_domain_directory(project_path, domain)
             
-            # Subdomain enumeration if domains provided
-            passive_subdomain_enum(domain)
+            passive_subdomain_enum(domain, threads)
             filter_live_domains()
             active_subdomain_enum(domain)
             
-            # Crawling if requested
             if crawl:
                 with open("domains") as f:
                     domains_list = f.read().splitlines()
@@ -263,6 +270,7 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--crawl", action="store_true", help="Enable all crawling")
     parser.add_argument("-r", "--recursive", action="store_true", help="Enable recursive JS crawling")
     parser.add_argument("-H", "--header", action="append", help="Custom headers (format: 'Header-Name: value')")
+    parser.add_argument("-t", "--threads", type=int, default=4, help="Number of threads for concurrent execution (default: 4)")
     args = parser.parse_args()
     
     custom_headers = {}
@@ -280,5 +288,6 @@ if __name__ == "__main__":
         domains=args.domains,
         crawl=args.crawl,
         recursive=args.recursive,
-        headers=custom_headers
+        headers=custom_headers,
+        threads=args.threads
     )
