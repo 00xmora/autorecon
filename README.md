@@ -1,6 +1,6 @@
 # AutoRecon
 
-AutoRecon is a powerful automated reconnaissance tool designed to simplify the process of subdomain enumeration, URL discovery, and website inspection. It integrates multiple tools like `amass`, `subfinder`, `sublist3r`, `httpx`, `ffuf`, `waybackurls`, `katana`, `waymore`, `crawley`, and `aquatone` to provide a comprehensive reconnaissance workflow.
+AutoRecon is a powerful automated reconnaissance tool designed to simplify the process of subdomain enumeration and URL discovery. It integrates multiple tools like `amass`, `subfinder`, `sublist3r`, `httpx`, `ffuf`, `waybackurls`, `katana`, `waymore`, `uro`, and `waybackrobots` to provide a comprehensive workflow, including JavaScript endpoint extraction.
 
 ## Features
 
@@ -12,16 +12,11 @@ AutoRecon is a powerful automated reconnaissance tool designed to simplify the p
 - Filters live domains using `httpx`.
 
 ### URL Discovery:
-- Discovers URLs using `waybackurls`, `katana`, `waymore`, and `crawley`.
-
-### Visual Inspection:
-- Inspects results using `aquatone`.
-
-### Parallel Execution:
-- Runs multiple tools in parallel for faster results.
+- Discovers URLs using `waybackurls`, `katana`, `waymore`, and `waybackrobots`.
+- Extracts JavaScript endpoints from discovered domains.
 
 ### Organized Output:
-- Saves results in a structured directory for each domain.
+- Saves results in a structured directory for each domain, with sorted and deduplicated files.
 
 ## Installation
 
@@ -33,92 +28,90 @@ AutoRecon is a powerful automated reconnaissance tool designed to simplify the p
 ### Installation Steps
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/autorecon.git
+   git clone https://github.com/omarsamy10/autorecon.git
    cd autorecon
+   ```
 2. Make the installation script executable:
    ```bash
    chmod +x install.sh
-
+   ```
 3. Run the installation script:
-      ```bash
-    ./install.sh
-    
-## Usage
-   Run the autorecon.sh script with a project name and one or more domains:
-   ```bash 
-   ./autorecon.sh MyProject domain1.com domain2.com
-   ```
-## Output
-   The results will be saved in the following directory structure:
    ```bash
-    MyProject/
-    ├── domain1.com/
-    │   ├── amass.txt
-    │   ├── subfinder.txt
-    │   ├── sublist3r.txt
-    │   ├── domains.txt
-    │   ├── domain.live
-    │   ├── ffuf.txt
-    │   ├── domains
-    │   ├── wayback.txt
-    │   ├── katana.txt
-    │   ├── waymore.txt
-    │   ├── crawley.txt
-    │   ├── waybackrobots.txt
-    │   ├── urls.txt
-    │   └── aquatone/
-    └── domain2.com/
-        └── ...
+   ./install.sh
    ```
-## Options
-Project Name: The name of the project directory where results will be saved.
-Domains: One or more domains to perform reconnaissance on.
+   This installs all required tools and moves `autorecon` to `/usr/local/bin` for global access.
+
+## Usage
+Run `autorecon` with a project name and one or more domains:
+```bash
+autorecon -n MyProject -d example.com example2.com
+```
+
+### Options
+- `-n, --project-name`: The name of the project directory where results will be saved (required).
+- `-d, --domains`: One or more domains to perform reconnaissance on.
+- `-c, --crawl`: Enable URL discovery and crawling (including JS endpoints).
+- `-r, --recursive`: Enable recursive JS endpoint extraction.
+- `-H, --header`: Custom headers for JS crawling (e.g., `"Authorization: Bearer token"`).
+
+## Output
+Results are saved in the following directory structure:
+```
+MyProject/
+├── example.com/
+│   ├── domains.txt       # Passive subdomain results
+│   ├── domain.live      # Live domains
+│   ├── domains          # Final subdomain list
+│   ├── urls.txt         # Sorted, deduplicated URLs from all tools
+└── example2.com/
+    └── ...
+```
 
 ## Example
-
- ```bash
- ./autorecon.sh MyProject example.com
- ./autorecon.sh MyProject example1.com example2.com
- ```
+```bash
+autorecon -n MyProject -d example.com -c -r -H "User-Agent: CustomAgent"
+```
 ### Output
+```
+[+] Project directory created: MyProject
+[+] Processing domain: example.com
+[+] Directory created: MyProject/example.com
+[+] Running passive subdomain enumeration...
+[+] Passive subdomain enumeration completed
+[+] Filtering live domains...
+[+] Live domains filtered
+[+] Running active subdomain enumeration...
+[+] Active subdomain enumeration completed
+[+] Running URL discovery and crawling...
+[+] JS endpoints saved to js_endpoints.txt (sorted and deduplicated)
+[+] URL discovery and crawling completed (sorted and deduplicated)
+[+] All tasks completed. Results in 'MyProject' directory
+```
 
- ```bash
- [+] Project directory created: MyProject
- [+] Processing domain: example.com
- [+] Directory created: MyProject/example.com
- [+] Running passive subdomain enumeration...
- [+] Passive subdomain enumeration completed. Results saved to domains.txt
- [+] Filtering live domains...
- [+] Live domains filtered. Results saved to domain.live
- [+] Running active subdomain enumeration...
- [+] Active subdomain enumeration completed. Results saved to domains
- [+] Running URL discovery and crawling...
- [+] URL discovery and crawling completed. Results saved to urls.txt
- [+] Running Aquatone for inspection...
- [+] Aquatone inspection completed. Results saved to aquatone/ directory
- [+] Done processing domain: example.com. Results are saved in the 'MyProject/example.com' directory.
- [+] All domains processed. Results are saved in the 'MyProject' directory.
- ```
-### Contributing
-Contributions are welcome! If you'd like to contribute to AutoRecon, please follow these steps:
-Fork the repository.
-Create a new branch for your feature or bugfix.
-Commit your changes.
-Submit a pull request.
+## Contributing
+Contributions are welcome! To contribute:
+1. Fork the repository.
+2. Create a new branch for your feature or bugfix.
+3. Commit your changes.
+4. Submit a pull request.
 
-License
-AutoRecon is licensed under the MIT License. See the LICENSE file for details.
+## License
+AutoRecon is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-Acknowledgments
-Thanks to the developers of the tools integrated into AutoRecon.
+## Acknowledgments
+Thanks to the developers of the integrated tools: `amass`, `subfinder`, `sublist3r`, `httpx`, `ffuf`, `waybackurls`, `katana`, `waymore`, `uro`, and `waybackrobots`.
 
-Inspired by various open-source reconnaissance tools and workflows. 
-
-Contact
-For questions, feedback, or support, feel free to reach out:
-
-Twitter: @omarsamy10
-
-Email: omar@example.com
+## Contact
+For questions, feedback, or support:
+- Twitter: [@omarsamy10](https://twitter.com/omarsamy10)
+- Linkedin: [omarsamy](www.linkedin.com/in/omar-samy-2b34b3311)
 
 Enjoy using AutoRecon! 🚀
+```
+
+#### Changes Made:
+1. **Updated Tools List**: Included all tools from the current `autorecon.py`, including `uro` and JS endpoint extraction.
+2. **Installation**: Updated to reflect the new `install.sh` behavior (global install).
+3. **Usage**: Changed to use the global `autorecon` command and added all options (`-c`, `-r`, `-H`).
+4. **Output**: Simplified to match the current script’s output files, removing unused ones like `amass.txt`.
+
