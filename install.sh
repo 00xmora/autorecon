@@ -23,7 +23,7 @@ sudo apt install -y git curl wget python3 python3-venv python3-pip golang libcur
 
 # Ensure pipx is installed and in PATH
 echo -e "${YELLOW}${BOLD}[+] Installing pipx...${NC}"
-python3 -m pip install --user pipx
+python3 -m pip install --user pipx --break-system-packages
 python3 -m pipx ensurepath
 # Source the updated PATH (might need to restart shell in some cases)
 source ~/.bashrc || source ~/.bash_profile
