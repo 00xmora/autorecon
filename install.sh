@@ -35,7 +35,7 @@ pipx install uro
 
 # Install Go-based tools
 echo -e "${YELLOW}${BOLD}[+] Installing Go-based tools...${NC}"
-go install github.com/OWASP/Amass/v3/...@latest
+go install github.com/owasp-amass/amass/v3/...@latest
 go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 go install github.com/projectdiscovery/httpx/cmd/httpx@latest
 go install github.com/tomnomnom/waybackurls@latest
