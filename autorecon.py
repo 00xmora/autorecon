@@ -254,42 +254,73 @@ def active_subdomain_enum(domain):
                 dns_servers = {line.strip().rstrip('.') for line in f if line.strip()}
             os.remove(dns_output_file)
         
-        if not dns_servers:
-            print(f"{YELLOW}[!] No authoritative DNS servers found, using system resolvers for dnsrecon{NC}")
-            ns_option = ""  # Default to system resolvers if none found
-        else:
-            ns_option = f"-n {list(dns_servers)[0]}"  # Use the first authoritative NS
+        ns_ips = []
+        if dns_servers:
+            for ns in dns_servers:
+                ip_output_file = f"ns_ip_{ns}.txt"
+                run_command(f"dig @8.8.8.8 A {ns} +short > {ip_output_file}", silent=True)
+                if os.path.exists(ip_output_file):
+                    with open(ip_output_file, "r") as f:
+                        ips = [line.strip() for line in f if line.strip() and re.match(r"^\d+\.\d+\.\d+\.\d+$", line)]
+                        if ips:
+                            ns_ips.append(ips[0])  # Take the first IP for each NS
+                    os.remove(ip_output_file)
         
         wordlist = "/usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt"
-        dnsrecon_output = "dnsrecon_output.txt"
-        cmd = f"dnsrecon -d {domain} -t brt -D {wordlist} {ns_option} --lifetime 10 --threads 50 -j -f > {dnsrecon_output}"
-        
         if not os.path.exists(wordlist):
             print(f"{RED}[!] Wordlist not found: {wordlist}{NC}")
             return
         
-        if run_command(cmd, silent=True):
-            live_domains = set()
-            if os.path.exists("domain.live"):
-                with open("domain.live", "r") as dl:
-                    live_domains = set(dl.read().splitlines())
+        live_domains = set()
+        if os.path.exists("domain.live"):
+            with open("domain.live", "r") as dl:
+                live_domains = set(dl.read().splitlines())
+        
+        if ns_ips:
+            # Log all NS IPs in a single line for readability
+            ns_list_str = ",".join(ns_ips)
+            print(f"{BLUE}[+] Querying name servers: -n {ns_list_str}{NC}")
             
-            if os.path.exists(dnsrecon_output):
-                try:
-                    with open(dnsrecon_output, "r") as f:
-                        data = json.load(f)
-                        for record in data:
-                            if record.get("type") in ["A", "CNAME"] and record.get("name", "").endswith(f".{domain}"):
-                                live_domains.add(record.get("name"))
-                except json.JSONDecodeError:
-                    print(f"{RED}[!] Failed to parse dnsrecon JSON output{NC}")
-                os.remove(dnsrecon_output)
-            
-            with open("domain.live", "w") as f:
-                f.write("\n".join(sorted(live_domains)))
-            print(f"{GREEN}[+] Active subdomain enumeration completed with dnsrecon{NC}")
+            # Run dnsrecon for each NS IP individually
+            for i, ns_ip in enumerate(ns_ips):
+                ns_option = f"-n {ns_ip}"
+                dnsrecon_output = f"dnsrecon_output_{i}.json"
+                cmd = f"dnsrecon -d {domain} -t brt -D {wordlist} {ns_option} --lifetime 10 --threads 50 -j {dnsrecon_output} -f"
+                
+                if run_command(cmd, silent=True):
+                    if os.path.exists(dnsrecon_output):
+                        try:
+                            with open(dnsrecon_output, "r") as f:
+                                data = json.load(f)
+                                for record in data:
+                                    if record.get("type") in ["A", "CNAME"] and record.get("name", "").endswith(f".{domain}"):
+                                        live_domains.add(record.get("name"))
+                        except json.JSONDecodeError:
+                            print(f"{RED}[!] Failed to parse dnsrecon JSON output for {dnsrecon_output}{NC}")
+                        os.remove(dnsrecon_output)
+                else:
+                    print(f"{RED}[!] Failed to run dnsrecon with {ns_option}{NC}")
         else:
-            print(f"{RED}[!] Failed to run dnsrecon{NC}")
+            print(f"{YELLOW}[!] No authoritative DNS server IPs resolved, using system resolvers{NC}")
+            dnsrecon_output = "dnsrecon_output.json"
+            cmd = f"dnsrecon -d {domain} -t brt -D {wordlist} --lifetime 10 --threads 50 -j {dnsrecon_output} -f"
+            if run_command(cmd, silent=True):
+                if os.path.exists(dnsrecon_output):
+                    try:
+                        with open(dnsrecon_output, "r") as f:
+                            data = json.load(f)
+                            for record in data:
+                                if record.get("type") in ["A", "CNAME"] and record.get("name", "").endswith(f".{domain}"):
+                                    live_domains.add(record.get("name"))
+                    except json.JSONDecodeError:
+                        print(f"{RED}[!] Failed to parse dnsrecon JSON output{NC}")
+                    os.remove(dnsrecon_output)
+            else:
+                print(f"{RED}[!] Failed to run dnsrecon with system resolvers{NC}")
+        
+        with open("domain.live", "w") as f:
+            f.write("\n".join(sorted(live_domains)))
+        print(f"{GREEN}[+] Active subdomain enumeration completed with dnsrecon{NC}")
     except Exception as e:
         print(f"{RED}[!] Error in active subdomain enumeration: {e}{NC}")
 
