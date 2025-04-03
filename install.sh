@@ -69,6 +69,19 @@ else
     echo -e "${GREEN}${BOLD}[+] seclists is already installed.${NC}"
 fi
 
+# Install dnscan
+echo -e "${YELLOW}${BOLD}[+] Installing dnscan...${NC}"
+if ! command_exists "dnscan"; then
+    git clone https://github.com/rbsec/dnscan.git /tmp/dnscan
+    sudo cp /tmp/dnscan/dnscan.py /usr/local/bin/dnscan
+    sudo chmod +x /usr/local/bin/dnscan
+    # Install dnscan dependencies
+    sudo pip3 install -r /tmp/dnscan/requirements.txt --break-system-packages
+    rm -rf /tmp/dnscan
+else
+    echo -e "${GREEN}${BOLD}[+] dnscan is already installed.${NC}"
+fi
+
 # Install autorecon globally
 echo -e "${YELLOW}${BOLD}[+] Installing AutoRecon globally...${NC}"
 if [ -f "autorecon.py" ]; then

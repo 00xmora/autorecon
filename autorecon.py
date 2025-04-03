@@ -61,21 +61,6 @@ def setup_domain_directory(project_path, domain):
     print(f"{BLUE}[+] Directory created: {project_path}/{domain}{NC}")
     return target_path
 
-def clean_file(file_path):
-    """Remove unwanted characters (e.g., ^@, ANSI codes) from a file."""
-    if not os.path.exists(file_path):
-        return
-    with open(file_path, 'r', errors='ignore') as f:
-        lines = f.readlines()
-    cleaned_lines = []
-    for line in lines:
-        # Remove null bytes (^@) and ANSI escape codes (e.g., ^[[92m)
-        cleaned = re.sub(r'\^@|\033\[[0-9;]*m', '', line).strip()
-        if cleaned:
-            cleaned_lines.append(cleaned)
-    with open(file_path, 'w') as f:
-        f.write('\n'.join(sorted(set(cleaned_lines))))
-
 def passive_subdomain_enum(domain, threads=20):
     print(f"{YELLOW}[+] Running passive subdomain enumeration with {threads} threads...{NC}")
     commands = [
@@ -93,17 +78,8 @@ def passive_subdomain_enum(domain, threads=20):
             except Exception as e:
                 print(f"{RED}Error in thread for {futures[future]}: {e}{NC}")
     
-    all_subdomains = set()
-    for _, outfile in commands:
-        if os.path.exists(outfile):
-            with open(outfile, 'r', errors='ignore') as f:
-                all_subdomains.update(line.strip() for line in f if line.strip())
+    run_command("cat amassoutput.txt subfinder.txt sublist3r.txt | sort -u >> domains.txt","domains.txt")
     
-    with open("domains.txt", "w") as f:
-        for sub in all_subdomains:
-            f.write(f"{sub}\n")
-    
-    clean_file("domains.txt")
     
     for file in ["amassoutput.txt", "subfinder.txt", "sublist3r.txt"]:
         if os.path.exists(file):
@@ -114,7 +90,6 @@ def filter_live_domains():
     print(f"{YELLOW}[+] Filtering live domains...{NC}")
     if os.path.exists("domains.txt"):
         if run_command("cat domains.txt | httpx -silent -o domain.live", silent=True):
-            clean_file("domain.live")
             print(f"{GREEN}[+] Live domains filtered{NC}")
         else:
             print(f"{RED}[!] Failed to filter live domains{NC}")
@@ -124,27 +99,69 @@ def filter_live_domains():
 def active_subdomain_enum(domain):
     print(f"{YELLOW}[+] Running active subdomain enumeration...{NC}")
     try:
-        run_command(f"ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt -u https://FUZZ.{domain} -c -mc all -fs 0 -o ffuf.txt")
+        # Step 1: Get DNS servers using dig
+        dns_output_file = "dns_servers.txt"
+        run_command(f"dig NS {domain} +short > {dns_output_file}", silent=True)
         
-        live_domains = set()
-        if os.path.exists("domain.live"):
-            with open("domain.live", "r") as dl:
-                live_domains = set(dl.read().splitlines())
+        dns_ips = set()
+        if os.path.exists(dns_output_file):
+            with open(dns_output_file, "r") as f:
+                dns_servers = [line.strip().rstrip('.') for line in f if line.strip()]
+            os.remove(dns_output_file)
+            
+            # Step 2: Get IPs of DNS servers
+            for dns_server in dns_servers:
+                ip_output_file = f"dns_ip_{dns_server}.txt"
+                run_command(f"dig A {dns_server} +short > {ip_output_file}", silent=True)
+                if os.path.exists(ip_output_file):
+                    with open(ip_output_file, "r") as f:
+                        ips = [line.strip() for line in f if line.strip() and re.match(r"^\d+\.\d+\.\d+\.\d+$", line.strip())]
+                        dns_ips.update(ips)
+                    os.remove(ip_output_file)
         
-        if os.path.exists("ffuf.txt"):
-            with open("ffuf.txt", "r") as ff:
-                ffuf_data = json.load(ff)
-                ffuf_subdomains = {result["url"] for result in ffuf_data.get("results", [])}
-                live_domains.update(ffuf_subdomains)
-            os.remove("ffuf.txt")
+        if not dns_ips:
+            print(f"{YELLOW}[!] No DNS server IPs found, proceeding with default resolvers{NC}")
+            dns_ips_str = ""  # Let dnscan use default resolvers if none found
+        else:
+            dns_ips_str = ",".join(dns_ips)
         
-        with open("domain.live", "w") as f:
-            f.write("\n".join(sorted(live_domains)))
-        clean_file("domain.live")
-        print(f"{GREEN}[+] Active subdomain enumeration completed{NC}")
+        # Step 3: Run dnscan with the same wordlist as before
+        wordlist = "/usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt"
+        dnscan_output = "dnscan_output.txt"
+        cmd = f"dnscan -d {domain} -w {wordlist}"
+        if dns_ips_str:
+            cmd += f" -R {dns_ips_str}"
+        cmd += f" -o {dnscan_output}"
+        
+        if not os.path.exists(wordlist):
+            print(f"{RED}[!] Wordlist not found: {wordlist}{NC}")
+            return
+        
+        if run_command(cmd, silent=True):
+            # Extract subdomains from dnscan output
+            live_domains = set()
+            if os.path.exists("domain.live"):
+                with open("domain.live", "r") as dl:
+                    live_domains = set(dl.read().splitlines())
+            
+            if os.path.exists(dnscan_output):
+                with open(dnscan_output, "r") as f:
+                    # Assuming dnscan outputs subdomains one per line or with IP
+                    for line in f:
+                        subdomain = line.strip().split()[0] if " " in line else line.strip()
+                        if subdomain and subdomain.endswith(f".{domain}"):
+                            live_domains.add(subdomain)
+                os.remove(dnscan_output)
+            
+            # Update domain.live with new findings
+            with open("domain.live", "w") as f:
+                f.write("\n".join(sorted(live_domains)))
+            print(f"{GREEN}[+] Active subdomain enumeration completed{NC}")
+        else:
+            print(f"{RED}[!] Failed to run dnscan{NC}")
     except Exception as e:
         print(f"{RED}[!] Error in active subdomain enumeration: {e}{NC}")
-
+        
 def fetch_js_files(url, headers):
     try:
         response = requests.get(url, headers=headers, timeout=10)
