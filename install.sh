@@ -87,6 +87,7 @@ echo -e "${YELLOW}${BOLD}[+] Installing AutoRecon globally...${NC}"
 if [ -f "autorecon.py" ]; then
     chmod +x autorecon.py
     sudo mv autorecon.py /usr/local/bin/autorecon
+    sudo mv config.ini /usr/local/bin/
     echo -e "${GREEN}${BOLD}[+] AutoRecon installed to /usr/local/bin/autorecon${NC}"
 else
     echo -e "${RED}${BOLD}[!] Error: autorecon.py not found in current directory${NC}"
