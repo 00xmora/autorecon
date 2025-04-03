@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from concurrent.futures import ThreadPoolExecutor
+from bs4 import BeautifulSoup
+import configparser
 
 # Define colors
 RED = '\033[0;31m'
@@ -19,6 +21,25 @@ MAGENTA = '\033[0;35m'
 CYAN = '\033[0;36m'
 NC = '\033[0m'
 BOLD = '\033[1m'
+
+# Load configuration
+config = configparser.ConfigParser()
+config_file = 'config.ini'
+if os.path.exists(config_file):
+    config.read(config_file)
+else:
+    config['API_KEYS'] = {
+        'pentest_tools': '',
+        'securitytrails': '',
+        'virustotal': ''
+    }
+    with open(config_file, 'w') as f:
+        config.write(f)
+    print(f"{YELLOW}[+] Created default config.ini. Please add your API keys if available.{NC}")
+
+PENTEST_API_KEY = config['API_KEYS'].get('pentest_tools', '')
+SECURITYTRAILS_API_KEY = config['API_KEYS'].get('securitytrails', '')
+VIRUSTOTAL_API_KEY = config['API_KEYS'].get('virustotal', '')
 
 def print_banner():
     print(f"{CYAN}{BOLD}")
@@ -49,17 +70,129 @@ def run_command(command, silent=False, output_file=None):
     return True
 
 def setup_project(project_name):
-    project_path = Path(project_name).resolve()   # Absolute path
+    project_path = Path(project_name).resolve()
     project_path.mkdir(parents=True, exist_ok=True)
     print(f"{GREEN}{BOLD}[+] Project directory created: {project_name}{NC}")
     return project_path
 
 def setup_domain_directory(project_path, domain):
-    target_path = (project_path / domain).resolve()  # Absolute path
+    target_path = (project_path / domain).resolve()
     target_path.mkdir(parents=True, exist_ok=True)
     os.chdir(target_path)
     print(f"{BLUE}[+] Directory created: {project_path}/{domain}{NC}")
     return target_path
+
+def get_subdomains_from_free_services(target):
+    subdomains = set()
+
+    # 1. Pentest-Tools.com (API if key, else web)
+    if PENTEST_API_KEY:
+        headers = {"X-API-Key": PENTEST_API_KEY}
+        base_url = "https://pentest-tools.com/api"
+        try:
+            response = requests.post(f"{base_url}/targets", json={"name": target, "type": "domain"}, headers=headers)
+            target_id = response.json().get("id")
+            scan_data = {"target_id": target_id, "tool": "subdomain_finder"}
+            response = requests.post(f"{base_url}/scans", json=scan_data, headers=headers)
+            scan_id = response.json().get("scan_id")
+            while True:
+                response = requests.get(f"{base_url}/scans/{scan_id}", headers=headers)
+                data = response.json()
+                if data.get("status") == "finished":
+                    subdomains.update(data.get("results", {}).get("subdomains", []))
+                    break
+                time.sleep(10)
+        except Exception as e:
+            print(f"{RED}Error with Pentest-Tools API: {e}{NC}")
+    else:
+        try:
+            url = f"https://pentest-tools.com/information-gathering/find-subdomains-of-domain?domain={target}"
+            response = requests.get(url, timeout=10)
+            soup = BeautifulSoup(response.text, "html.parser")
+            for div in soup.select("div.subdomain-result"):
+                subdomain = div.text.strip()
+                if subdomain.endswith(f".{target}"):
+                    subdomains.add(subdomain)
+            print(f"{GREEN}[+] Retrieved Ironing out subdomains from Pentest-Tools web{NC}")
+        except Exception as e:
+            print(f"{RED}Error with Pentest-Tools web: {e}{NC}")
+
+    # 2. DNSdumpster.com
+    try:
+        response = requests.get("https://dnsdumpster.com", timeout=10)
+        csrf_token = re.search(r'name="csrfmiddlewaretoken" value="(.+?)"', response.text).group(1)
+        data = {"csrfmiddlewaretoken": csrf_token, "targetip": target}
+        headers = {"Referer": "https://dnsdumpster.com"}
+        response = requests.post("https://dnsdumpster.com", data=data, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
+        for td in soup.select("td.col-md-4"):
+            subdomain = td.text.strip()
+            if subdomain.endswith(f".{target}"):
+                subdomains.add(subdomain)
+    except Exception as e:
+        print(f"{RED}Error with DNSdumpster: {e}{NC}")
+
+    # 3. Nmmapper.com (manual retrieval due to CAPTCHA)
+    print(f"{YELLOW}[+] Nmmapper.com requires manual retrieval: https://www.nmmapper.com/subdomains{NC}")
+
+    # 4. SecurityTrails.com (API if key)
+    if SECURITYTRAILS_API_KEY:
+        headers = {"APIKEY": SECURITYTRAILS_API_KEY}
+        try:
+            response = requests.get(f"https://api.securitytrails.com/v1/domain/{target}/subdomains", headers=headers)
+            data = response.json()
+            for sub in data.get("subdomains", []):
+                subdomains.add(f"{sub}.{target}")
+        except Exception as e:
+            print(f"{RED}Error with SecurityTrails: {e}{NC}")
+
+    # 5. Crt.sh
+    try:
+        response = requests.get(f"https://crt.sh/?q=%.{target}&output=json", timeout=10)
+        for entry in response.json():
+            name = entry.get("name_value", "").strip()
+            if name.endswith(f".{target}"):
+                subdomains.add(name)
+    except Exception as e:
+        print(f"{RED}Error with Crt.sh: {e}{NC}")
+
+    # 6. SubdomainFinder.c99.nl (manual retrieval)
+    print(f"{YELLOW}[+] SubdomainFinder.c99.nl requires manual retrieval: https://subdomainfinder.c99.nl{NC}")
+
+    # 7. VirusTotal.com (API if key)
+    if VIRUSTOTAL_API_KEY:
+        headers = {"x-apikey": VIRUSTOTAL_API_KEY}
+        try:
+            response = requests.get(f"https://www.virustotal.com/api/v3/domains/{target}/subdomains", headers=headers)
+            data = response.json()
+            for sub in data.get("data", []):
+                subdomains.add(sub.get("id"))
+        except Exception as e:
+            print(f"{RED}Error with VirusTotal: {e}{NC}")
+
+    # 8. FindSubDomains.com (manual retrieval)
+    print(f"{YELLOW}[+] FindSubDomains.com requires manual retrieval: https://findsubdomains.com{NC}")
+
+    # 9. Netcraft.com
+    try:
+        response = requests.get(f"https://searchdns.netcraft.com/?host=*.{target}", timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
+        for a in soup.select("a[href*='site=']"):
+            subdomain = re.search(r"site=([^&]+)", a["href"]).group(1)
+            if subdomain.endswith(f".{target}"):
+                subdomains.add(subdomain)
+    except Exception as e:
+        print(f"{RED}Error with Netcraft: {e}{NC}")
+
+    # 10. Spyse/SOCRadar
+    try:
+        response = requests.get(f"https://api.socradar.io/tools/subdomains?domain={target}", timeout=10)
+        data = response.json()
+        subdomains.update(data.get("subdomains", []))
+    except Exception as e:
+        print(f"{RED}Error with SOCRadar: {e}{NC}")
+
+    return subdomains
 
 def passive_subdomain_enum(domain, threads=20):
     print(f"{YELLOW}[+] Running passive subdomain enumeration with {threads} threads...{NC}")
@@ -78,12 +211,18 @@ def passive_subdomain_enum(domain, threads=20):
             except Exception as e:
                 print(f"{RED}Error in thread for {futures[future]}: {e}{NC}")
     
-    run_command("cat amassoutput.txt subfinder.txt sublist3r.txt | sort -u >> domains.txt","domains.txt")
-    
-    
+    all_subdomains = set()
     for file in ["amassoutput.txt", "subfinder.txt", "sublist3r.txt"]:
         if os.path.exists(file):
+            with open(file, "r") as f:
+                all_subdomains.update(line.strip() for line in f if line.strip())
             os.remove(file)
+    
+    online_subdomains = get_subdomains_from_free_services(domain)
+    all_subdomains.update(online_subdomains)
+    
+    with open("domains.txt", "w") as f:
+        f.write("\n".join(sorted(all_subdomains)))
     print(f"{GREEN}[+] Passive subdomain enumeration completed{NC}")
 
 def filter_live_domains():
@@ -99,7 +238,6 @@ def filter_live_domains():
 def active_subdomain_enum(domain):
     print(f"{YELLOW}[+] Running active subdomain enumeration...{NC}")
     try:
-        # Step 1: Get DNS servers using dig
         dns_output_file = "dns_servers.txt"
         run_command(f"dig NS {domain} +short > {dns_output_file}", silent=True)
         
@@ -109,7 +247,6 @@ def active_subdomain_enum(domain):
                 dns_servers = [line.strip().rstrip('.') for line in f if line.strip()]
             os.remove(dns_output_file)
             
-            # Step 2: Get IPs of DNS servers
             for dns_server in dns_servers:
                 ip_output_file = f"dns_ip_{dns_server}.txt"
                 run_command(f"dig A {dns_server} +short > {ip_output_file}", silent=True)
@@ -121,15 +258,14 @@ def active_subdomain_enum(domain):
         
         if not dns_ips:
             print(f"{YELLOW}[!] No DNS server IPs found, proceeding with default resolvers{NC}")
-            dns_ips_str = ""  # Let dnscan use default resolvers if none found
+            dns_ips_str = ""
         else:
             dns_ips_str = ",".join(dns_ips)
         
-        # Step 3: Run dnscan with the same wordlist as before
         wordlist = "/usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt"
         dnscan_output = "dnscan_output.txt"
         cmd = f"dnscan -d {domain} -w {wordlist}"
-        if dns_ips_str:
+        if dns_ips_str:  # Fixed: Correct variable name and syntax
             cmd += f" -R {dns_ips_str}"
         cmd += f" -o {dnscan_output}"
         
@@ -138,7 +274,6 @@ def active_subdomain_enum(domain):
             return
         
         if run_command(cmd, silent=True):
-            # Extract subdomains from dnscan output
             live_domains = set()
             if os.path.exists("domain.live"):
                 with open("domain.live", "r") as dl:
@@ -146,14 +281,12 @@ def active_subdomain_enum(domain):
             
             if os.path.exists(dnscan_output):
                 with open(dnscan_output, "r") as f:
-                    # Assuming dnscan outputs subdomains one per line or with IP
                     for line in f:
                         subdomain = line.strip().split()[0] if " " in line else line.strip()
                         if subdomain and subdomain.endswith(f".{domain}"):
                             live_domains.add(subdomain)
                 os.remove(dnscan_output)
             
-            # Update domain.live with new findings
             with open("domain.live", "w") as f:
                 f.write("\n".join(sorted(live_domains)))
             print(f"{GREEN}[+] Active subdomain enumeration completed{NC}")
@@ -161,7 +294,7 @@ def active_subdomain_enum(domain):
             print(f"{RED}[!] Failed to run dnscan{NC}")
     except Exception as e:
         print(f"{RED}[!] Error in active subdomain enumeration: {e}{NC}")
-        
+
 def fetch_js_files(url, headers):
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -267,7 +400,6 @@ def crawl_urls(domain, domains_list, recursive=False, headers=None):
             with open(file, 'r', errors='ignore') as f:
                 all_urls.update(line.strip() for line in f if line.strip())
     
-    # Filter URLs to only include main domain and subdomains
     domain_pattern = re.compile(rf'https?://(?:[a-zA-Z0-9-]+\.)*{re.escape(domain)}(?:/|$|\?)')
     filtered_urls = {url for url in all_urls if domain_pattern.match(url)}
     
