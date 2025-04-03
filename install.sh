@@ -69,17 +69,17 @@ else
     echo -e "${GREEN}${BOLD}[+] seclists is already installed.${NC}"
 fi
 
-# Install dnscan
-echo -e "${YELLOW}${BOLD}[+] Installing dnscan...${NC}"
-if ! command_exists "dnscan"; then
-    git clone https://github.com/rbsec/dnscan.git /tmp/dnscan
-    sudo cp /tmp/dnscan/dnscan.py /usr/local/bin/dnscan
-    sudo chmod +x /usr/local/bin/dnscan
-    # Install dnscan dependencies
-    sudo pip3 install -r /tmp/dnscan/requirements.txt --break-system-packages
-    rm -rf /tmp/dnscan
+# Install dnsrecon
+echo -e "${YELLOW}${BOLD}[+] Installing dnsrecon...${NC}"
+if ! command_exists "dnsrecon"; then
+    git clone https://github.com/darkoperator/dnsrecon.git /tmp/dnsrecon
+    cd /tmp/dnsrecon
+    sudo pip3 install -r requirements.txt --break-system-packages
+    sudo python3 setup.py install
+    cd -
+    rm -rf /tmp/dnsrecon
 else
-    echo -e "${GREEN}${BOLD}[+] dnscan is already installed.${NC}"
+    echo -e "${GREEN}${BOLD}[+] dnsrecon is already installed.${NC}"
 fi
 
 # Install autorecon globally

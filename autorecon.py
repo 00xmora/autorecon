@@ -31,7 +31,13 @@ else:
     config['API_KEYS'] = {
         'pentest_tools': '',
         'securitytrails': '',
-        'virustotal': ''
+        'virustotal': '',
+        'dnsdumpster':'',
+        'crtsh':'',
+        'subdomainfinder':'',
+        'findsubdomains':'',
+        'netcraft':'',
+        'socradar':''
     }
     with open(config_file, 'w') as f:
         config.write(f)
@@ -113,7 +119,7 @@ def get_subdomains_from_free_services(target):
                 subdomain = div.text.strip()
                 if subdomain.endswith(f".{target}"):
                     subdomains.add(subdomain)
-            print(f"{GREEN}[+] Retrieved Ironing out subdomains from Pentest-Tools web{NC}")
+            print(f"{GREEN}[+] Retrieved subdomains from Pentest-Tools web{NC}")
         except Exception as e:
             print(f"{RED}Error with Pentest-Tools web: {e}{NC}")
 
@@ -236,38 +242,27 @@ def filter_live_domains():
         print(f"{RED}[!] domains.txt not found, skipping live domain filtering{NC}")
 
 def active_subdomain_enum(domain):
-    print(f"{YELLOW}[+] Running active subdomain enumeration...{NC}")
+    print(f"{YELLOW}[+] Running active subdomain enumeration with dnsrecon...{NC}")
     try:
         dns_output_file = "dns_servers.txt"
-        run_command(f"dig NS {domain} +short > {dns_output_file}", silent=True)
+        # Use Google's public DNS server to fetch NS records
+        run_command(f"dig @8.8.8.8 NS {domain} +short > {dns_output_file}", silent=True)
         
-        dns_ips = set()
+        dns_servers = set()
         if os.path.exists(dns_output_file):
             with open(dns_output_file, "r") as f:
-                dns_servers = [line.strip().rstrip('.') for line in f if line.strip()]
+                dns_servers = {line.strip().rstrip('.') for line in f if line.strip()}
             os.remove(dns_output_file)
-            
-            for dns_server in dns_servers:
-                ip_output_file = f"dns_ip_{dns_server}.txt"
-                run_command(f"dig A {dns_server} +short > {ip_output_file}", silent=True)
-                if os.path.exists(ip_output_file):
-                    with open(ip_output_file, "r") as f:
-                        ips = [line.strip() for line in f if line.strip() and re.match(r"^\d+\.\d+\.\d+\.\d+$", line.strip())]
-                        dns_ips.update(ips)
-                    os.remove(ip_output_file)
         
-        if not dns_ips:
-            print(f"{YELLOW}[!] No DNS server IPs found, proceeding with default resolvers{NC}")
-            dns_ips_str = ""
+        if not dns_servers:
+            print(f"{YELLOW}[!] No authoritative DNS servers found, using system resolvers for dnsrecon{NC}")
+            ns_option = ""  # Default to system resolvers if none found
         else:
-            dns_ips_str = ",".join(dns_ips)
+            ns_option = f"-n {list(dns_servers)[0]}"  # Use the first authoritative NS
         
         wordlist = "/usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt"
-        dnscan_output = "dnscan_output.txt"
-        cmd = f"dnscan -d {domain} -w {wordlist}"
-        if dns_ips_str:  # Fixed: Correct variable name and syntax
-            cmd += f" -R {dns_ips_str}"
-        cmd += f" -o {dnscan_output}"
+        dnsrecon_output = "dnsrecon_output.txt"
+        cmd = f"dnsrecon -d {domain} -t brt -D {wordlist} {ns_option} --lifetime 10 -j -f > {dnsrecon_output}"
         
         if not os.path.exists(wordlist):
             print(f"{RED}[!] Wordlist not found: {wordlist}{NC}")
@@ -279,19 +274,22 @@ def active_subdomain_enum(domain):
                 with open("domain.live", "r") as dl:
                     live_domains = set(dl.read().splitlines())
             
-            if os.path.exists(dnscan_output):
-                with open(dnscan_output, "r") as f:
-                    for line in f:
-                        subdomain = line.strip().split()[0] if " " in line else line.strip()
-                        if subdomain and subdomain.endswith(f".{domain}"):
-                            live_domains.add(subdomain)
-                os.remove(dnscan_output)
+            if os.path.exists(dnsrecon_output):
+                try:
+                    with open(dnsrecon_output, "r") as f:
+                        data = json.load(f)
+                        for record in data:
+                            if record.get("type") in ["A", "CNAME"] and record.get("name", "").endswith(f".{domain}"):
+                                live_domains.add(record.get("name"))
+                except json.JSONDecodeError:
+                    print(f"{RED}[!] Failed to parse dnsrecon JSON output{NC}")
+                os.remove(dnsrecon_output)
             
             with open("domain.live", "w") as f:
                 f.write("\n".join(sorted(live_domains)))
-            print(f"{GREEN}[+] Active subdomain enumeration completed{NC}")
+            print(f"{GREEN}[+] Active subdomain enumeration completed with dnsrecon{NC}")
         else:
-            print(f"{RED}[!] Failed to run dnscan{NC}")
+            print(f"{RED}[!] Failed to run dnsrecon{NC}")
     except Exception as e:
         print(f"{RED}[!] Error in active subdomain enumeration: {e}{NC}")
 
