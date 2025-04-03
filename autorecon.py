@@ -262,7 +262,7 @@ def active_subdomain_enum(domain):
         
         wordlist = "/usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt"
         dnsrecon_output = "dnsrecon_output.txt"
-        cmd = f"dnsrecon -d {domain} -t brt -D {wordlist} {ns_option} --lifetime 10 -j -f > {dnsrecon_output}"
+        cmd = f"dnsrecon -d {domain} -t brt -D {wordlist} {ns_option} --lifetime 10 --threads 50 -j -f > {dnsrecon_output}"
         
         if not os.path.exists(wordlist):
             print(f"{RED}[!] Wordlist not found: {wordlist}{NC}")
