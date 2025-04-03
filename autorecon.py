@@ -4,6 +4,7 @@ import os
 import subprocess
 import requests
 import re
+import json
 import time
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -43,21 +44,37 @@ def run_command(command, silent=False, output_file=None):
         else:
             subprocess.run(command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"{RED}Error running command: {command}{NC}")
-        raise e
+        print(f"{RED}Error running command: {command} - {e}{NC}")
+        return False
+    return True
 
 def setup_project(project_name):
-    project_path = Path(project_name)
+    project_path = Path(project_name).resolve()   # Absolute path
     project_path.mkdir(parents=True, exist_ok=True)
     print(f"{GREEN}{BOLD}[+] Project directory created: {project_name}{NC}")
     return project_path
 
 def setup_domain_directory(project_path, domain):
-    target_path = project_path / domain
+    target_path = (project_path / domain).resolve()  # Absolute path
     target_path.mkdir(parents=True, exist_ok=True)
     os.chdir(target_path)
     print(f"{BLUE}[+] Directory created: {project_path}/{domain}{NC}")
     return target_path
+
+def clean_file(file_path):
+    """Remove unwanted characters (e.g., ^@, ANSI codes) from a file."""
+    if not os.path.exists(file_path):
+        return
+    with open(file_path, 'r', errors='ignore') as f:
+        lines = f.readlines()
+    cleaned_lines = []
+    for line in lines:
+        # Remove null bytes (^@) and ANSI escape codes (e.g., ^[[92m)
+        cleaned = re.sub(r'\^@|\033\[[0-9;]*m', '', line).strip()
+        if cleaned:
+            cleaned_lines.append(cleaned)
+    with open(file_path, 'w') as f:
+        f.write('\n'.join(sorted(set(cleaned_lines))))
 
 def passive_subdomain_enum(domain, threads=20):
     print(f"{YELLOW}[+] Running passive subdomain enumeration with {threads} threads...{NC}")
@@ -67,31 +84,27 @@ def passive_subdomain_enum(domain, threads=20):
         (f"sublist3r -d {domain} -o sublist3r.txt", "sublist3r.txt")
     ]
     
-    # Run commands concurrently
     with ThreadPoolExecutor(max_workers=threads) as executor:
         futures = {executor.submit(run_command, cmd, True, outfile): outfile 
                   for cmd, outfile in commands}
         for future in futures:
             try:
-                future.result()  # Wait for completion and catch exceptions
+                future.result()
             except Exception as e:
                 print(f"{RED}Error in thread for {futures[future]}: {e}{NC}")
     
-    # Process results
-    with open("amassoutput.txt") as f:
-        amass = [line.split()[0] for line in f if "(FQDN)" in line]
-    with open("subfinder.txt") as f:
-        subfinder = [line.strip() for line in f]
-    with open("sublist3r.txt") as f:
-        sublist3r = [line.strip() for line in f]
+    all_subdomains = set()
+    for _, outfile in commands:
+        if os.path.exists(outfile):
+            with open(outfile, 'r', errors='ignore') as f:
+                all_subdomains.update(line.strip() for line in f if line.strip())
     
-    # Combine and deduplicate
-    all_subdomains = set(amass + subfinder + sublist3r)
     with open("domains.txt", "w") as f:
         for sub in all_subdomains:
             f.write(f"{sub}\n")
     
-    # Clean up
+    clean_file("domains.txt")
+    
     for file in ["amassoutput.txt", "subfinder.txt", "sublist3r.txt"]:
         if os.path.exists(file):
             os.remove(file)
@@ -99,29 +112,46 @@ def passive_subdomain_enum(domain, threads=20):
 
 def filter_live_domains():
     print(f"{YELLOW}[+] Filtering live domains...{NC}")
-    run_command("cat domains.txt | httpx -silent -o domain.live", silent=True)
-    os.remove("domains.txt")
-    print(f"{GREEN}[+] Live domains filtered{NC}")
+    if os.path.exists("domains.txt"):
+        if run_command("cat domains.txt | httpx -silent -o domain.live", silent=True):
+            clean_file("domain.live")
+            print(f"{GREEN}[+] Live domains filtered{NC}")
+        else:
+            print(f"{RED}[!] Failed to filter live domains{NC}")
+    else:
+        print(f"{RED}[!] domains.txt not found, skipping live domain filtering{NC}")
 
 def active_subdomain_enum(domain):
     print(f"{YELLOW}[+] Running active subdomain enumeration...{NC}")
-    run_command(f"ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt -u https://FUZZ.{domain} -c -mc all -fs 0 -o ffuf.txt")
-    with open("domains", "w") as f:
-        with open("domain.live") as dl, open("ffuf.txt") as ff:
-            domains_set = set(dl.read().splitlines() + ff.read().splitlines())
-            f.write("\n".join(domains_set))
-    for file in ["domain.live", "ffuf.txt"]:
-        if os.path.exists(file):
-            os.remove(file)
-    print(f"{GREEN}[+] Active subdomain enumeration completed{NC}")
+    try:
+        run_command(f"ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt -u https://FUZZ.{domain} -c -mc all -fs 0 -o ffuf.txt")
+        
+        live_domains = set()
+        if os.path.exists("domain.live"):
+            with open("domain.live", "r") as dl:
+                live_domains = set(dl.read().splitlines())
+        
+        if os.path.exists("ffuf.txt"):
+            with open("ffuf.txt", "r") as ff:
+                ffuf_data = json.load(ff)
+                ffuf_subdomains = {result["url"] for result in ffuf_data.get("results", [])}
+                live_domains.update(ffuf_subdomains)
+            os.remove("ffuf.txt")
+        
+        with open("domain.live", "w") as f:
+            f.write("\n".join(sorted(live_domains)))
+        clean_file("domain.live")
+        print(f"{GREEN}[+] Active subdomain enumeration completed{NC}")
+    except Exception as e:
+        print(f"{RED}[!] Error in active subdomain enumeration: {e}{NC}")
 
 def fetch_js_files(url, headers):
     try:
         response = requests.get(url, headers=headers, timeout=10)
         js_pattern = re.compile(r'src=["\'](.*?\.js.*?)["\']', re.IGNORECASE)
         return [urljoin(url, js_file) for js_file in js_pattern.findall(response.text)]
-    except Exception:
-        print(f"{YELLOW}[+] Error fetching JS files from {url}{NC}")
+    except Exception as e:
+        print(f"{YELLOW}[+] Error fetching JS files from {url}: {e}{NC}")
         return []
 
 def extract_endpoints(js_url, headers):
@@ -143,12 +173,11 @@ def extract_endpoints(js_url, headers):
             else:
                 endpoints.update(matches)
         return endpoints
-    except Exception:
-        print(f"{YELLOW}[+] Error extracting endpoints from {js_url}{NC}")
+    except Exception as e:
+        print(f"{YELLOW}[+] Error extracting endpoints from {js_url}: {e}{NC}")
         return set()
 
 def normalize_endpoint(endpoint, base_url):
-    """Normalize an endpoint to a full URL using the base URL of the JS file."""
     parsed_base = urlparse(base_url)
     base_domain = f"{parsed_base.scheme}://{parsed_base.netloc}"
     
@@ -204,26 +233,34 @@ def jslinks(domains, output="js_endpoints.txt", recursive=False, headers=None):
 def crawl_urls(domain, domains_list, recursive=False, headers=None):
     print(f"{YELLOW}[+] Running URL discovery and crawling...{NC}")
     
-    run_command(f"cat domains | waybackurls > wayback.txt", silent=True)
-    run_command(f"katana -list domains -d 5 -jc -o katana.txt", silent=True)
-    run_command(f"cat domains | waymore > waymore.txt", silent=True)
-    run_command(f"echo {domain} | waybackrobots -recent > waybackrobots.txt", silent=True)
+    for cmd, outfile in [
+        ("cat domains | waybackurls", "wayback.txt"),
+        ("katana -list domains -d 5 -jc", "katana.txt"),
+        ("cat domains | waymore", "waymore.txt"),
+        (f"echo {domain} | waybackrobots -recent", "waybackrobots.txt")
+    ]:
+        if not run_command(f"{cmd} > {outfile}", silent=True):
+            print(f"{RED}[!] Failed to run {cmd}{NC}")
     
     jslinks(domains=domains_list, output="js_endpoints.txt", recursive=recursive, headers=headers)
     
     all_urls = set()
     for file in ["wayback.txt", "katana.txt", "waymore.txt", "waybackrobots.txt", "js_endpoints.txt"]:
         if os.path.exists(file):
-            with open(file) as f:
+            with open(file, 'r', errors='ignore') as f:
                 all_urls.update(line.strip() for line in f if line.strip())
     
+    # Filter URLs to only include main domain and subdomains
+    domain_pattern = re.compile(rf'https?://(?:[a-zA-Z0-9-]+\.)*{re.escape(domain)}(?:/|$|\?)')
+    filtered_urls = {url for url in all_urls if domain_pattern.match(url)}
+    
     with open("urls.txt", "w") as f:
-        f.write("\n".join(sorted(all_urls)))
+        f.write("\n".join(sorted(filtered_urls)))
     
     for file in ["wayback.txt", "katana.txt", "waymore.txt", "waybackrobots.txt", "js_endpoints.txt"]:
         if os.path.exists(file):
             os.remove(file)
-    print(f"{GREEN}[+] URL discovery and crawling completed (sorted and deduplicated){NC}")
+    print(f"{GREEN}[+] URL discovery and crawling completed (sorted and deduplicated, filtered for {domain}){NC}")
 
 def autorecon(project_name=None, domains=None, crawl=False, recursive=False, headers=None, threads=4):
     print_banner()
@@ -233,7 +270,6 @@ def autorecon(project_name=None, domains=None, crawl=False, recursive=False, hea
         return
     
     project_path = setup_project(project_name)
-    time.sleep(2)
     if not domains and not crawl:
         print(f"{YELLOW}[+] No domains (-d) or crawling (-c) requested. Nothing to do.{NC}")
         return
@@ -251,9 +287,12 @@ def autorecon(project_name=None, domains=None, crawl=False, recursive=False, hea
             active_subdomain_enum(domain)
             
             if crawl:
-                with open("domains") as f:
-                    domains_list = f.read().splitlines()
-                crawl_urls(domain, domains_list, recursive=recursive, headers=headers)
+                if os.path.exists("domain.live"):
+                    with open("domain.live") as f:
+                        domains_list = f.read().splitlines()
+                    crawl_urls(domain, domains_list, recursive=recursive, headers=headers)
+                else:
+                    print(f"{RED}[!] domain.live not found, skipping crawling{NC}")
             
             os.chdir(project_path)
     
