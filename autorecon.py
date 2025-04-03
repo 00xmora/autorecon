@@ -62,7 +62,7 @@ def setup_domain_directory(project_path, domain):
 def passive_subdomain_enum(domain, threads=20):
     print(f"{YELLOW}[+] Running passive subdomain enumeration with {threads} threads...{NC}")
     commands = [
-        (f"amass enum -d {domain} -o amassoutput.txt", "amassoutput.txt"),
+        (f"amass enum -passive -d {domain} -o amassoutput.txt", "amassoutput.txt"),
         (f"subfinder -d {domain} -o subfinder.txt", "subfinder.txt"),
         (f"sublist3r -d {domain} -o sublist3r.txt", "sublist3r.txt")
     ]
