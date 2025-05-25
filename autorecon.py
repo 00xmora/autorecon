@@ -217,19 +217,8 @@ def passive_subdomain_enum(domain, threads=20):
             except Exception as e:
                 print(f"{RED}Error in thread for {futures[future]}: {e}{NC}")
     
-    all_subdomains = set()
-    for file in ["amassoutput.txt", "subfinder.txt", "sublist3r.txt"]:
-        if os.path.exists(file):
-            with open(file, "r") as f:
-                all_subdomains.update(line.strip() for line in f if line.strip())
-            os.remove(file)
-    
-    online_subdomains = get_subdomains_from_free_services(domain)
-    all_subdomains.update(online_subdomains)
-    
-    with open("domains.txt", "w") as f:
-        f.write("\n".join(sorted(all_subdomains)))
-    print(f"{GREEN}[+] Passive subdomain enumeration completed{NC}")
+    run_command("cat amassoutput.txt subfinder.txt sublist3r.txt | sort -u >> domains.txt ","domains.txt")
+    run_command("rm amassoutput.txt subfinder.txt sublist3r.txt")
 
 def filter_live_domains():
     print(f"{YELLOW}[+] Filtering live domains...{NC}")
