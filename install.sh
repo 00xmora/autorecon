@@ -77,7 +77,7 @@ done
 echo -e "${YELLOW}${BOLD}[+] Installing additional Python tools from Git repositories...${NC}"
 
 # sublist3r
-if ! command_exists "sublist3r.py"; then # Check for the script name directly
+if ! command_exists "sublist3r" ; then # Check for the script name directly
     echo -e "${YELLOW}[+] Installing Sublist3r...${NC}"
     git clone https://github.com/aboul3la/Sublist3r.git /opt/Sublist3r
     sudo pip3 install -r /opt/Sublist3r/requirements.txt --break-system-packages
@@ -112,7 +112,9 @@ fi
 if ! command_exists "paramspider"; then
     echo -e "${YELLOW}[+] Installing ParamSpider...${NC}"
     git clone https://github.com/devanshbatham/ParamSpider.git /opt/ParamSpider
-    sudo pip3 install -r /opt/ParamSpider/requirements.txt --break-system-packages
+    cd /opt/ParamSpider/
+    python3 install setup.py 
+    cd ~ 
     # Create a symlink to make it globally executable
     sudo ln -sf /opt/ParamSpider/paramspider.py /usr/local/bin/paramspider
     sudo chmod +x /usr/local/bin/paramspider
