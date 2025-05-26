@@ -24,7 +24,23 @@ BOLD = '\033[1m'
 
 # Load configuration
 config = configparser.ConfigParser()
-config_file = 'config.ini'
+script_dir = Path(__file__).resolve().parent
+local_config_path = script_dir / 'config.ini'
+global_config_path = Path('/usr/local/bin/config.ini')
+
+if local_config_path.exists():
+    config_file = str(local_config_path)
+    print(f"{YELLOW}[+] Using config.ini from local directory: {config_file}{NC}")
+elif global_config_path.exists():
+    config_file = str(global_config_path)
+    print(f"{YELLOW}[+] Using config.ini from global path: {config_file}{NC}")
+else:
+    # If neither exists, create a default one in the current working directory
+    # This scenario should ideally not happen if install.sh runs correctly
+    config_file = 'config.ini'
+    print(f"{RED}[!] config.ini not found in common paths. Creating default in current directory.{NC}")
+
+    
 if os.path.exists(config_file):
     config.read(config_file)
 else:
