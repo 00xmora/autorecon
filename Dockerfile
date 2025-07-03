@@ -7,7 +7,7 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 ENV GOROOT=/usr/local/go
 ENV GOPATH=/go
 
-# Install prerequisites
+# Install prerequisites including browser dependencies for crawler.py
 RUN apt update && \
     apt install -y --no-install-recommends \
     git \
@@ -22,6 +22,8 @@ RUN apt update && \
     dnsutils \
     iputils-ping \
     nmap \
+    chromium-browser \
+    chromium-chromedriver \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pipx and ensure its path
@@ -29,13 +31,13 @@ RUN python3 -m pip install --no-cache-dir --user pipx && \
     python3 -m pipx ensurepath
 
 # Set PATH for pipx and Go binaries for subsequent RUN commands
+# /root/.local/bin for pipx, /go/bin for Go tools
 ENV PATH="/root/.local/bin:/go/bin:${PATH}"
 
-# Create a directory for tools outside Go's default path (e.g., for Python tools cloned)
+# Create a directory for tools cloned by Dockerfile (e.g., for Python tools cloned directly)
 RUN mkdir -p /opt/tools
 
-# Install Go-based tools
-# Note: These tools are installed to /go/bin inside the container
+# Install Go-based tools (these are installed to $GOPATH/bin which is /go/bin)
 RUN go install github.com/owasp-amass/amass/v3/...@latest && \
     go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
     go install github.com/projectdiscovery/httpx/cmd/httpx@latest && \
@@ -48,6 +50,8 @@ RUN go install github.com/owasp-amass/amass/v3/...@latest && \
     go install github.com/OJ/gobuster/v3/...@latest
 
 # Install Python-based tools by cloning and installing dependencies
+# Note: jslinks.py and crawler.py are NOT installed here; autorecon.py handles them.
+
 # Sublist3r
 RUN git clone https://github.com/aboul3la/Sublist3r.git /opt/tools/Sublist3r && \
     pip3 install --no-cache-dir -r /opt/tools/Sublist3r/requirements.txt --break-system-packages
@@ -71,10 +75,9 @@ RUN apt install -y seclists
 # Update Nuclei templates
 RUN nuclei -update-templates || echo "Failed to update Nuclei templates. Internet connectivity issue?"
 
-# Copy the autorecon script and config file into the container
+# Copy the autorecon script into the container
 WORKDIR /app
 COPY autorecon.py .
-COPY config.ini .
 
 # Make autorecon executable and set up symlinks for cloned Python tools
 RUN chmod +x autorecon.py && \
@@ -82,11 +85,6 @@ RUN chmod +x autorecon.py && \
     ln -s /opt/tools/Sublist3r/sublist3r.py /usr/local/bin/sublist3r && \
     ln -s /opt/tools/ParamSpider/paramspider.py /usr/local/bin/paramspider && \
     ln -s /opt/tools/SecretFinder/SecretFinder.py /usr/local/bin/secretfinder
-
-# Create a default config.ini at /usr/local/bin/ if it doesn't exist already
-# (autorecon.py expects it in the same directory or where it's executed)
-# We copied it to /app, let's also put it in /usr/local/bin for consistency
-RUN cp /app/config.ini /usr/local/bin/config.ini
 
 # Set entrypoint to autorecon for easy execution
 ENTRYPOINT ["autorecon"]

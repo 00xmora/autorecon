@@ -4,6 +4,7 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 BOLD='\033[1m'
 
@@ -19,7 +20,8 @@ echo -e "${YELLOW}${BOLD}[+] Updating package lists...${NC}"
 sudo apt update
 
 echo -e "${YELLOW}${BOLD}[+] Installing necessary system packages...${NC}"
-sudo apt install -y git curl wget python3 python3-venv python3-pip golang libcurl4-openssl-dev libssl-dev unzip dnsutils
+# Keeping original packages, add chromium-browser and chromedriver for optional crawler.py usage
+sudo apt install -y git curl wget python3 python3-venv python3-pip golang libcurl4-openssl-dev libssl-dev unzip dnsutils chromium-browser chromium-chromedriver
 
 # Ensure pipx is installed and in PATH
 echo -e "${YELLOW}${BOLD}[+] Installing pipx...${NC}"
@@ -34,11 +36,6 @@ elif [ -f "$HOME/.profile" ]; then
     source "$HOME/.profile"
 fi
 export PATH="$PATH:$HOME/.local/bin:$HOME/go/bin" # Ensure common paths are in PATH for script execution
-
-# Install Python-based tools using pipx
-echo -e "${YELLOW}${BOLD}[+] Installing Python-based tools with pipx...${NC}"
-pipx install waymore || echo -e "${YELLOW}[!] waymore might already be installed or failed. Continuing...${NC}"
-pipx install uro || echo -e "${YELLOW}[!] uro might already be installed or failed. Continuing...${NC}"
 
 # Install Go-based tools
 echo -e "${YELLOW}${BOLD}[+] Installing Go-based tools...${NC}"
@@ -113,8 +110,9 @@ if ! command_exists "paramspider"; then
     echo -e "${YELLOW}[+] Installing ParamSpider...${NC}"
     git clone https://github.com/devanshbatham/ParamSpider.git /opt/ParamSpider
     cd /opt/ParamSpider/
-    python3 install setup.py 
-    cd ~ 
+    # paramspider uses requirements.txt, not setup.py
+    sudo pip3 install -r requirements.txt --break-system-packages
+    cd - > /dev/null
     # Create a symlink to make it globally executable
     sudo ln -sf /opt/ParamSpider/paramspider.py /usr/local/bin/paramspider
     sudo chmod +x /usr/local/bin/paramspider
@@ -144,23 +142,19 @@ fi
 
 # Install autorecon globally
 echo -e "${YELLOW}${BOLD}[+] Installing AutoRecon globally...${NC}"
-# Ensure autorecon.py and config.ini are in the current directory
-if [ -f "autorecon.py" ] && [ -f "config.ini" ]; then
+# Ensure autorecon.py is in the current directory
+if [ -f "autorecon.py" ]; then
     chmod +x autorecon.py
     sudo cp autorecon.py /usr/local/bin/autorecon
     
-    # Ensure config.ini is placed where autorecon can find it, or update autorecon.py to look in /etc or ~/.config
-    # For simplicity, let's put it in /usr/local/bin alongside the script
-    sudo cp config.ini /usr/local/bin/config.ini
-    
     echo -e "${GREEN}${BOLD}[+] AutoRecon installed to /usr/local/bin/autorecon${NC}"
-    echo -e "${YELLOW}Please check and update API keys in /usr/local/bin/config.ini.${NC}"
+    echo -e "${YELLOW}AutoRecon will automatically install 'jslinks' and 'crawler' when first used, if needed.${NC}"
 else
-    echo -e "${RED}${BOLD}[!] Error: autorecon.py or config.ini not found in current directory. Cannot install AutoRecon globally.${NC}"
+    echo -e "${RED}${BOLD}[!] Error: autorecon.py not found in current directory. Cannot install AutoRecon globally.${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}${BOLD}[+] All tools and AutoRecon installation attempted!${NC}"
+echo -e "${GREEN}${BOLD}[+] All core tools and AutoRecon installation attempted!${NC}"
 echo -e "${GREEN}${BOLD}[+] You can now run 'autorecon -h' to see usage instructions.${NC}"
 echo -e "${YELLOW}${BOLD}[!] IMPORTANT: Ensure your PATH includes $HOME/.local/bin and $HOME/go/bin. Restart your terminal if tools are not found.${NC}"
-echo -e "${YELLOW}${BOLD}[!] IMPORTANT: Edit /usr/local/bin/config.ini to add your API keys!${NC}"
+echo -e "${YELLOW}${BOLD}[!] IMPORTANT: 'jslinks' and 'crawler' will be installed automatically by autorecon.py when first executed if not found.${NC}"

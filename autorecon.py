@@ -7,10 +7,9 @@ import re
 import json
 import time
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse, parse_qs
 from concurrent.futures import ThreadPoolExecutor
-from bs4 import BeautifulSoup
-import configparser
+import argparse
 
 # Define colors
 RED = '\033[0;31m'
@@ -22,64 +21,16 @@ CYAN = '\033[0;36m'
 NC = '\033[0m'
 BOLD = '\033[1m'
 
-# Load configuration
-config = configparser.ConfigParser()
-script_dir = Path(__file__).resolve().parent
-local_config_path = script_dir / 'config.ini'
-global_config_path = Path('/usr/local/bin/config.ini')
-
-if local_config_path.exists():
-    config_file = str(local_config_path)
-    print(f"{YELLOW}[+] Using config.ini from local directory: {config_file}{NC}")
-elif global_config_path.exists():
-    config_file = str(global_config_path)
-    print(f"{YELLOW}[+] Using config.ini from global path: {config_file}{NC}")
-else:
-    # If neither exists, create a default one in the current working directory
-    # This scenario should ideally not happen if install.sh runs correctly
-    config_file = 'config.ini'
-    print(f"{RED}[!] config.ini not found in common paths. Creating default in current directory.{NC}")
-
-    
-if os.path.exists(config_file):
-    config.read(config_file)
-else:
-    config['API_KEYS'] = {
-        'pentest_tools': '',
-        'securitytrails': '',
-        'dnsdumpster':'',
-        'netcraft':'',
-        'socradar':'',
-        'shrewdeye':'',
-        'chaos':'' # Added Chaos API key
-    }
-    # Add sections for tool configurations if they don't exist
-    if 'TOOL_CONFIGS' not in config:
-        config['TOOL_CONFIGS'] = {
-            'subfinder_config': os.path.join(str(Path.home()), '.config', 'subfinder', 'config.yaml'),
-            'amass_config': os.path.join(str(Path.home()), '.config', 'amass', 'config.ini'),
-            'httpx_config': os.path.join(str(Path.home()), '.config', 'httpx', 'config.yaml'),
-            'nuclei_templates_path': os.path.join(str(Path.home()), 'nuclei-templates'),
-            'seclists_path': '/usr/share/seclists' # General seclists path
-        }
-
-    with open(config_file, 'w') as f:
-        config.write(f)
-    print(f"{YELLOW}[+] Created default config.ini. Please add your API keys and verify tool config paths if available.{NC}")
-
-PENTEST_API_KEY = config['API_KEYS'].get('pentest_tools', '')
-SECURITYTRAILS_API_KEY = config['API_KEYS'].get('securitytrails', '')
-SHREUDEYE_API_KEY = config['API_KEYS'].get('shrewdeye', '')
-CHAOS_API_KEY = config['API_KEYS'].get('chaos', '') # Get Chaos API key
-
-# Tool config paths
-SUBFINDER_CONFIG = config['TOOL_CONFIGS'].get('subfinder_config')
-AMASS_CONFIG = config['TOOL_CONFIGS'].get('amass_config')
-HTTPX_CONFIG = config['TOOL_CONFIGS'].get('httpx_config')
-NUCLEI_TEMPLATES_PATH = config['TOOL_CONFIGS'].get('nuclei_templates_path')
-SECLISTS_PATH = config['TOOL_CONFIGS'].get('seclists_path')
+# Tool config paths (these are defaults, tools will be checked in PATH)
+# Ensure these paths are correctly set if your tools are installed elsewhere
+SUBFINDER_CONFIG = Path.home() / '.config' / 'subfinder' / 'config.yaml'
+AMASS_CONFIG = Path.home() / '.config' / 'amass' / 'config.ini'
+HTTPX_CONFIG = Path.home() / '.config' / 'httpx' / 'config.yaml'
+NUCLEI_TEMPLATES_PATH = Path.home() / 'nuclei-templates'
+SECLISTS_PATH = '/usr/share/seclists' # General seclists path
 
 def print_banner():
+    """Prints the tool's banner."""
     print(f"{CYAN}{BOLD}")
     print(r"                                                    ")
     print(r"                _        _____                      ")
@@ -127,336 +78,129 @@ def run_command(command, silent=False, output_file=None, capture_output=False, c
         return False, None
     return True, None
 
+def install_external_python_tool(tool_name, repo_url, script_name_in_repo, symlink_name):
+    """Installs a Python-based external tool from a Git repository if it's not found."""
+    print(f"{YELLOW}[+] Checking if {tool_name} is installed...{NC}")
+    if run_command(f"which {symlink_name}", silent=True, capture_output=False)[0]:
+        print(f"{GREEN}[+] {tool_name} is already installed.{NC}")
+        return True
+    
+    print(f"{YELLOW}[!] {tool_name} not found. Attempting to install from {repo_url}...{NC}")
+    install_dir = Path("/opt") / tool_name # Install to /opt to avoid permission issues in /usr/local/bin directly
+    
+    try:
+        if not install_dir.exists():
+            run_command(f"git clone {repo_url} {install_dir}", silent=True)
+            print(f"{GREEN}[+] Cloned {tool_name} repository to {install_dir}{NC}")
+        
+        # Check for requirements.txt and install if present
+        requirements_path = install_dir / "requirements.txt"
+        if requirements_path.exists():
+            print(f"{BLUE}[+] Installing Python dependencies for {tool_name}...{NC}")
+            run_command(f"sudo pip3 install -r {requirements_path} --break-system-packages", silent=True)
+            
+        # Create a symlink to the main script in /usr/local/bin
+        source_script = install_dir / script_name_in_repo
+        symlink_path = Path("/usr/local/bin") / symlink_name
+        
+        if source_script.exists():
+            run_command(f"sudo ln -sf {source_script} {symlink_path}", silent=True)
+            run_command(f"sudo chmod +x {symlink_path}", silent=True)
+            print(f"{GREEN}[+] Created symlink for {tool_name} at {symlink_path}{NC}")
+        else:
+            print(f"{RED}[!] Source script {source_script} not found for symlinking. Cannot create executable link.{NC}")
+            return False
+        
+        if run_command(f"which {symlink_name}", silent=True, capture_output=False)[0]:
+            print(f"{GREEN}[+] {tool_name} installed successfully!{NC}")
+            return True
+        else:
+            print(f"{RED}[!] {tool_name} still not found in PATH after installation attempt. Please check manually.{NC}")
+            return False
+
+    except Exception as e:
+        print(f"{RED}Error installing {tool_name}: {e}{NC}")
+        return False
+
+def is_subdomain_of(potential_sub, main_domain):
+    """Checks if a potential_sub is a subdomain of main_domain or the main_domain itself."""
+    return potential_sub == main_domain or potential_sub.endswith(f".{main_domain}")
+
+def filter_and_normalize_entries(entries, main_target_domain, entry_type="url", exclude_extensions=None):
+    """
+    Filters, normalizes, and deduplicates a list of entries (URLs, domains, or IPs).
+    Args:
+        entries (iterable): List or set of strings (URLs, domain names, or IP addresses).
+        main_target_domain (str): The primary domain for filtering (e.g., "example.com").
+        entry_type (str): "url", "domain", or "ip" to apply specific filtering logic.
+        exclude_extensions (list): List of file extensions to exclude if entry_type is "url".
+    Returns:
+        set: A set of normalized and filtered entries.
+    """
+    if exclude_extensions is None:
+        exclude_extensions = ['.css', '.js', '.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', 'woff2', '.ttf', '.eot', '.map', '.txt', '.xml', '.pdf']
+
+    normalized_filtered_entries = set()
+    
+    for entry_str in entries:
+        if not entry_str or len(entry_str) < 5: # Minimum reasonable length for an entry
+            continue
+        
+        try:
+            if entry_type == "domain":
+                if is_subdomain_of(entry_str, main_target_domain):
+                    normalized_filtered_entries.add(entry_str)
+            
+            elif entry_type == "url":
+                parsed_url = urlparse(entry_str)
+                
+                if not parsed_url.scheme or not parsed_url.netloc:
+                    continue
+
+                if not is_subdomain_of(parsed_url.netloc, main_target_domain):
+                    continue
+                
+                path_lower = parsed_url.path.lower()
+                if any(path_lower.endswith(ext) for ext in exclude_extensions):
+                    continue
+
+                query_params = parse_qs(parsed_url.query)
+                sorted_query = '&'.join(f"{k}={','.join(sorted(v))}" for k, v in sorted(query_params.items()))
+                
+                normalized_url = urlunparse(parsed_url._replace(fragment="", query=sorted_query))
+                normalized_filtered_entries.add(normalized_url)
+            
+            elif entry_type == "ip":
+                if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", entry_str):
+                    normalized_filtered_entries.add(entry_str)
+            
+            else: # Fallback for other string types
+                normalized_filtered_entries.add(entry_str)
+
+        except Exception as e:
+            print(f"{YELLOW}[!] Could not process entry '{entry_str}' as {entry_type}: {e}{NC}")
+            continue
+            
+    return normalized_filtered_entries
+
+
 def setup_project(project_name):
+    """Creates the main project directory."""
     project_path = Path(project_name).resolve()
     project_path.mkdir(parents=True, exist_ok=True)
     print(f"{GREEN}{BOLD}[+] Project directory created: {project_name}{NC}")
     return project_path
 
 def setup_domain_directory(project_path, domain):
+    """Creates and navigates into the domain-specific directory within the project."""
     target_path = (project_path / domain).resolve()
     target_path.mkdir(parents=True, exist_ok=True)
     os.chdir(target_path)
     print(f"{BLUE}[+] Directory created: {project_path}/{domain}{NC}")
     return target_path
 
-def configure_tool_apikeys():
-    print(f"{YELLOW}[+] Attempting to configure API keys for tools...{NC}")
-
-    # Subfinder
-    if SUBFINDER_CONFIG and (config['API_KEYS'].get('securitytrails') or config['API_KEYS'].get('chaos')):
-        try:
-            subfinder_config_path = Path(SUBFINDER_CONFIG)
-            subfinder_config_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            subfinder_config_content = ""
-            if subfinder_config_path.exists():
-                with open(subfinder_config_path, 'r') as f:
-                    subfinder_config_content = f.read()
-            else:
-                subfinder_config_content = "providers:\n"
-
-            if SECURITYTRAILS_API_KEY:
-                if re.search(r'securitytrails:\s*""', subfinder_config_content):
-                    subfinder_config_content = re.sub(r'securitytrails:\s*""', f'securitytrails: "{SECURITYTRAILS_API_KEY}"', subfinder_config_content)
-                elif "securitytrails:" in subfinder_config_content:
-                    subfinder_config_content = re.sub(r'securitytrails: ".+"', f'securitytrails: "{SECURITYTRAILS_API_KEY}"', subfinder_config_content)
-                else:
-                    subfinder_config_content += f'\n  securitytrails: "{SECURITYTRAILS_API_KEY}"'
-                print(f"{GREEN}[+] Subfinder API key configured for SecurityTrails.{NC}")
-            
-            with open(subfinder_config_path, 'w') as f:
-                f.write(subfinder_config_content)
-        except Exception as e:
-            print(f"{RED}[!] Error configuring Subfinder API key: {e}{NC}")
-    else:
-        print(f"{YELLOW}[!] Subfinder config path or relevant API keys not found, skipping Subfinder API configuration.{NC}")
-
-    # Amass
-    if AMASS_CONFIG and SECURITYTRAILS_API_KEY:
-        try:
-            amass_config_path = Path(AMASS_CONFIG)
-            amass_config_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            amass_config_content = ""
-            if amass_config_path.exists():
-                with open(amass_config_path, 'r') as f:
-                    amass_config_content = f.read()
-            else: # Create a basic Amass config if it doesn't exist
-                amass_config_content = """# Amass Configuration
-scope:
-  domains: []
-  ips: []
-  asns: []
-  cidrs: []
-  ports: []
-  blacklist: []
-options:
-  resolvers: []
-  datasources: ""
-  wordlist: []
-  database: ""
-  bruteforce:
-    enabled: false
-    wordlists: []
-  alterations:
-    enabled: false
-    wordlists: []
-"""
-            # Use regex to find or add the SecurityTrails API key within the Amass config
-            # Amass config uses a 'securitytrails' section under 'datasources'
-            
-            # First, ensure datasources section is present and correctly formatted if adding new
-            # This is a simplified approach, a more robust parser would be needed for complex YAML/INI
-            if "datasources:" not in amass_config_content:
-                 # Find a suitable place to insert 'datasources:' if it's missing
-                 # This is a heuristic; might need adjustment based on typical config structure
-                if "options:" in amass_config_content:
-                    amass_config_content = amass_config_content.replace("options:", "options:\n  datasources: ''")
-                else: # Add at the end if no 'options' section
-                    amass_config_content += "\noptions:\n  datasources: ''\n"
-
-            # Now, handle the SecurityTrails API key within the datasources section
-            # Check if a datasources.yaml is specified or if keys are inline
-            # For this example, we'll assume a direct "securitytrails" entry within the main config
-            
-            # Simple approach: append or replace a 'securitytrails' entry in the datasources section
-            # This might not be perfectly aligned with Amass's full datasource management,
-            # but covers common API key integration.
-            
-            # Look for existing securitytrails key
-            if re.search(r'securitytrails_apikey:\s*""', amass_config_content):
-                amass_config_content = re.sub(r'securitytrails_apikey:\s*""', f'securitytrails_apikey: "{SECURITYTRAILS_API_KEY}"', amass_config_content)
-            elif re.search(r'securitytrails_apikey:\s*".+"', amass_config_content):
-                amass_config_content = re.sub(r'securitytrails_apikey:\s*".+"', f'securitytrails_apikey: "{SECURITYTRAILS_API_KEY}"', amass_config_content)
-            else:
-                # Add it if not found, ideally under a 'datasources' section or similar structure
-                # A common place is directly under 'options' for many tools
-                # Amass expects it under a 'data_sources' map in its config file structure (not just string values)
-                # Example from Amass doc:
-                # data_sources:
-                #  securitytrails:
-                #    apikey: xxx
-                
-                # This is more complex to add programmatically into an INI-like structure
-                # A safer approach for Amass is to point to a datasources.yaml or tell user to do it.
-                # Given the example config, it seems Amass expects a separate datasources.yaml file.
-                # Let's pivot to creating/modifying a datasources.yaml if the config.ini refers to one.
-
-                amass_config_obj = configparser.ConfigParser()
-                amass_config_obj.read_string(amass_config_content)
-                
-                datasources_file = None
-                if 'options' in amass_config_obj and 'datasources' in amass_config_obj['options']:
-                    datasources_file = amass_config_obj['options']['datasources'].strip().strip('"\'')
-                    if datasources_file and datasources_file != "./datasources.yaml": # If custom path set
-                        print(f"{YELLOW}[!] Amass config points to a custom datasources file: {datasources_file}. Please configure SecurityTrails API key there manually.{NC}")
-                        datasources_file = None # Don't try to auto-configure if it's a custom path
-                
-                if not datasources_file: # If no datasources file specified or it's default
-                    # Default datasources.yaml location if not specified in main config.ini
-                    datasources_file = amass_config_path.parent / "datasources.yaml"
-                    
-                if datasources_file:
-                    try:
-                        datasources_file_path = Path(datasources_file)
-                        datasources_file_path.parent.mkdir(parents=True, exist_ok=True)
-                        
-                        datasources_yaml_content = ""
-                        if datasources_file_path.exists():
-                            with open(datasources_file_path, 'r') as f:
-                                datasources_yaml_content = f.read()
-                        
-                        # Add or update SecurityTrails API key in YAML format
-                        if "securitytrails:" in datasources_yaml_content:
-                            # Replace apikey if it exists
-                            datasources_yaml_content = re.sub(r'(securitytrails:\s*\n\s*apikey:\s*)"[^"]*"', r'\1"{}"'.format(SECURITYTRAILS_API_KEY), datasources_yaml_content)
-                        else:
-                            # Add new securitytrails block
-                            datasources_yaml_content += f"""
-securitytrails:
-  apikey: "{SECURITYTRAILS_API_KEY}"
-"""
-                        with open(datasources_file_path, 'w') as f:
-                            f.write(datasources_yaml_content)
-                        print(f"{GREEN}[+] Amass SecurityTrails API key configured in {datasources_file_path}.{NC}")
-                    except Exception as e:
-                        print(f"{RED}[!] Error configuring Amass SecurityTrails API key in datasources.yaml: {e}{NC}")
-            
-            with open(amass_config_path, 'w') as f:
-                f.write(amass_config_content)
-            
-        except Exception as e:
-            print(f"{RED}[!] Error configuring Amass API key: {e}{NC}")
-    else:
-        print(f"{YELLOW}[!] Amass config path or SecurityTrails API key not found, skipping Amass API configuration.{NC}")
-    
-def get_subdomains_from_free_services(target):
-    subdomains = set()
-    print(f"{YELLOW}[+] Fetching subdomains from various free services...{NC}")
-
-    # 1. Pentest-Tools.com (API if key)
-    if PENTEST_API_KEY:
-        headers = {"X-API-Key": PENTEST_API_KEY}
-        base_url = "https://pentest-tools.com/api"
-        try:
-            response = requests.post(f"{base_url}/targets", json={"name": target, "type": "domain"}, headers=headers, timeout=10)
-            response.raise_for_status() # Raise an exception for bad status codes
-            target_id = response.json().get("id")
-            scan_data = {"target_id": target_id, "tool": "subdomain_finder"}
-            response = requests.post(f"{base_url}/scans", json=scan_data, headers=headers, timeout=10)
-            response.raise_for_status()
-            scan_id = response.json().get("scan_id")
-            print(f"{BLUE}[+] Pentest-Tools scan initiated (ID: {scan_id}), waiting for results...{NC}")
-            while True:
-                response = requests.get(f"{base_url}/scans/{scan_id}", headers=headers, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-                if data.get("status") == "finished":
-                    subdomains.update(data.get("results", {}).get("subdomains", []))
-                    print(f"{GREEN}[+] Retrieved subdomains from Pentest-Tools API.{NC}")
-                    break
-                elif data.get("status") == "error":
-                    print(f"{RED}[!] Pentest-Tools scan failed with error: {data.get('error')}{NC}")
-                    break
-                time.sleep(10)
-        except requests.exceptions.RequestException as e:
-            print(f"{RED}Error with Pentest-Tools API: {e}{NC}")
-        except Exception as e:
-            print(f"{RED}Unexpected error with Pentest-Tools API: {e}{NC}")
-    else:
-        print(f"{YELLOW}[!] Pentest-Tools API key not provided. Skipping web retrieval due to potential CAPTCHA/changes.{NC}")
-
-    # 2. DNSdumpster.com
-    try:
-        response = requests.get("https://dnsdumpster.com", timeout=15)
-        response.raise_for_status()
-        csrf_token_match = re.search(r'name="csrfmiddlewaretoken" value="(.+?)"', response.text)
-        if not csrf_token_match:
-            print(f"{RED}[!] Could not find CSRF token for DNSdumpster.{NC}")
-            raise ValueError("CSRF token not found")
-        csrf_token = csrf_token_match.group(1)
-        data = {"csrfmiddlewaretoken": csrf_token, "targetip": target}
-        headers = {"Referer": "https://dnsdumpster.com"}
-        response = requests.post("https://dnsdumpster.com", data=data, headers=headers, timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        for td in soup.select("td.col-md-4"):
-            subdomain = td.text.strip()
-            if subdomain.endswith(f".{target}") and subdomain != target:
-                subdomains.add(subdomain)
-        print(f"{GREEN}[+] Retrieved subdomains from DNSdumpster.com.{NC}")
-    except requests.exceptions.RequestException as e:
-        print(f"{RED}Error with DNSdumpster: {e}{NC}")
-    except Exception as e:
-        print(f"{RED}Unexpected error with DNSdumpster: {e}{NC}")
-
-    # 3. SecurityTrails.com (API if key)
-    if SECURITYTRAILS_API_KEY:
-        headers = {"APIKEY": SECURITYTRAILS_API_KEY}
-        try:
-            response = requests.get(f"https://api.securitytrails.com/v1/domain/{target}/subdomains", headers=headers, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            for sub in data.get("subdomains", []):
-                subdomains.add(f"{sub}.{target}")
-            print(f"{GREEN}[+] Retrieved subdomains from SecurityTrails API.{NC}")
-        except requests.exceptions.RequestException as e:
-            print(f"{RED}Error with SecurityTrails: {e}{NC}")
-        except Exception as e:
-            print(f"{RED}Unexpected error with SecurityTrails API: {e}{NC}")
-
-    # 4. Netcraft.com (Web Scraping - can be brittle)
-    try:
-        response = requests.get(f"https://searchdns.netcraft.com/?host=*.{target}", timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        for a in soup.select("a[href*='site=']"):
-            href_match = re.search(r"site=([^&]+)", a["href"])
-            if href_match:
-                subdomain = href_match.group(1)
-                if subdomain.endswith(f".{target}") and subdomain != target:
-                    subdomains.add(subdomain)
-        print(f"{GREEN}[+] Retrieved subdomains from Netcraft.com.{NC}")
-    except requests.exceptions.RequestException as e:
-        print(f"{RED}Error with Netcraft: {e}{NC}")
-    except Exception as e:
-        print(f"{RED}Unexpected error with Netcraft: {e}{NC}")
-
-    # 5. SOCRadar
-    try:
-        response = requests.get(f"https://api.socradar.io/tools/subdomains?domain={target}", timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        subdomains.update(data.get("subdomains", []))
-        print(f"{GREEN}[+] Retrieved subdomains from SOCRadar.{NC}")
-    except requests.exceptions.RequestException as e:
-        print(f"{RED}Error with SOCRadar (API might require authentication or be rate-limited): {e}{NC}")
-    except Exception as e:
-        print(f"{RED}Unexpected error with SOCRadar: {e}{NC}")
-
-    # 6. ShrewdEye.app (API)
-    if SHREUDEYE_API_KEY:
-        headers = {"X-API-KEY": SHREUDEYE_API_KEY}
-        base_url = f"https://shrewdeye.app/api/v1/domains/{target}/resources"
-        page = 1
-        total_pages = 1
-        try:
-            while page <= total_pages:
-                params = {"page": page}
-                response = requests.get(base_url, headers=headers, params=params, timeout=15)
-                response.raise_for_status()
-                data = response.json()
-                
-                total_pages = data.get("last_page", 1)
-                
-                for resource in data.get("data", []):
-                    name = resource.get("name")
-                    if name and name.endswith(f".{target}"):
-                        subdomains.add(name)
-                
-                print(f"{BLUE}[+] Retrieved ShrewdEye page {page}/{total_pages}...{NC}")
-                page += 1
-                time.sleep(0.5)
-            print(f"{GREEN}[+] Retrieved all subdomains from ShrewdEye.app.{NC}")
-        except requests.exceptions.RequestException as e:
-            print(f"{RED}Error with ShrewdEye.app API: {e}{NC}")
-        except Exception as e:
-            print(f"{RED}Unexpected error with ShrewdEye.app API: {e}{NC}")
-    else:
-        print(f"{YELLOW}[!] ShrewdEye API key not provided. Skipping ShrewdEye.app.{NC}")
-
-    # 7. Chaos API
-    if CHAOS_API_KEY:
-        headers = {
-            "Authorization": CHAOS_API_KEY,
-            "Connection": "close"
-        }
-        chaos_url = f"https://dns.projectdiscovery.io/dns/{target}/subdomains"
-        try:
-            print(f"{BLUE}[+] Fetching subdomains from Chaos API...{NC}")
-            response = requests.get(chaos_url, headers=headers, timeout=15)
-            response.raise_for_status()
-            data = response.json()
-            if "subdomains" in data:
-                for sub in data["subdomains"]:
-                    if sub.endswith(f".{target}") or sub == "*":
-                        subdomains.add(sub)
-                    elif not sub.endswith(target) and sub != "*":
-                        subdomains.add(f"{sub}.{target}")
-            print(f"{GREEN}[+] Retrieved {len(data.get('subdomains', []))} subdomains from Chaos API.{NC}")
-        except requests.exceptions.RequestException as e:
-            print(f"{RED}Error with Chaos API: {e}{NC}")
-        except json.JSONDecodeError:
-            print(f"{RED}[!] Failed to parse JSON from Chaos API. Response might be malformed.{NC}")
-        except Exception as e:
-            print(f"{RED}Unexpected error with Chaos API: {e}{NC}")
-    else:
-        print(f"{YELLOW}[!] Chaos API key not provided. Skipping Chaos API.{NC}")
-
-    return subdomains
-
 def passive_subdomain_enum(domain, threads=20):
+    """Performs passive subdomain enumeration using various tools."""
     print(f"{YELLOW}[+] Running passive subdomain enumeration with {threads} threads...{NC}")
     
     temp_amass_file = "amass_raw.txt"
@@ -489,17 +233,17 @@ def passive_subdomain_enum(domain, threads=20):
             except Exception as e:
                 print(f"{RED}Error reading or cleaning up {temp_file}: {e}{NC}")
     
-    service_subdomains = get_subdomains_from_free_services(domain)
-    all_subdomains.update(service_subdomains)
+    filtered_subdomains = filter_and_normalize_entries(all_subdomains, domain, entry_type="domain")
 
-    if all_subdomains:
+    if filtered_subdomains:
         with open("domains.txt", "w") as f:
-            f.write("\n".join(sorted(all_subdomains)))
+            f.write("\n".join(sorted(filtered_subdomains)))
         print(f"{GREEN}[+] All passive subdomains collected and saved to domains.txt{NC}")
     else:
         print(f"{YELLOW}[!] No passive subdomains found.{NC}")
 
-def filter_live_domains():
+def filter_live_domains(main_target_domain):
+    """Filters discovered domains to identify live and responsive web servers using httpx."""
     print(f"{YELLOW}[+] Filtering live domains with httpx...{NC}")
     if not os.path.exists("domains.txt"):
         print(f"{RED}[!] domains.txt not found, skipping live domain filtering{NC}")
@@ -527,8 +271,11 @@ def filter_live_domains():
                             unique_ips.add(data['ip'])
                     except json.JSONDecodeError:
                         pass
+                
+                filtered_ips = filter_and_normalize_entries(unique_ips, main_target_domain, entry_type="ip")
+                
                 with open("ips.txt", "w") as f:
-                    f.write("\n".join(sorted(unique_ips)))
+                    f.write("\n".join(sorted(filtered_ips)))
                 print(f"{GREEN}[+] Extracted unique IPs to ips.txt{NC}")
             except Exception as e:
                 print(f"{RED}[!] Error extracting IPs: {e}{NC}")
@@ -565,6 +312,7 @@ def _run_dnsrecon(domain, wordlist, ns_option, output_file, live_domains_set):
 
 
 def active_subdomain_enum(domain, custom_wordlist_path=None):
+    """Performs active subdomain enumeration using dnsrecon and ffuf."""
     print(f"{YELLOW}[+] Running active subdomain enumeration with dnsrecon and ffuf...{NC}")
     try:
         success, ns_records_str = run_command(f"dig @8.8.8.8 NS {domain} +short", silent=True, capture_output=True, check_install="dig")
@@ -582,7 +330,6 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
                     if ips:
                         ns_ips.append(ips[0])
         
-        # Determine wordlist to use
         wordlist_path_dnsrecon = Path(SECLISTS_PATH) / "Discovery" / "DNS" / "subdomains-top1million-110000.txt"
         wordlist_path_ffuf = Path(SECLISTS_PATH) / "Discovery" / "Web-Content" / "subdomains-top1million-110000.txt"
 
@@ -598,8 +345,7 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
                 return
             if not Path(wordlist_ffuf).exists():
                 print(f"{RED}[!] Default FFUF wordlist not found: {wordlist_ffuf}. Please ensure Seclists is installed and configured.{NC}")
-                # You might choose to continue without ffuf or exit
-                wordlist_ffuf = None # Mark as not available
+                wordlist_ffuf = None 
             print(f"{BLUE}[+] Using default wordlists.{NC}")
 
         live_domains = set()
@@ -624,7 +370,7 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
             for future in dnsrecon_futures:
                 future.result()
 
-        if wordlist_ffuf: # Only run ffuf if wordlist is available
+        if wordlist_ffuf:
             print(f"{YELLOW}[+] Running FFUF for virtual host enumeration...{NC}")
             ffuf_output_file = "ffuf_vhosts.json"
             ffuf_cmd = (
@@ -659,9 +405,11 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
             else:
                 print(f"{RED}[!] FFUF command failed. Ensure ffuf is installed and accessible.{NC}")
 
-        if live_domains:
+        filtered_live_domains = filter_and_normalize_entries(live_domains, domain, entry_type="domain")
+
+        if filtered_live_domains:
             with open("domain.live", "w") as f:
-                f.write("\n".join(sorted(live_domains)))
+                f.write("\n".join(sorted(filtered_live_domains)))
             print(f"{GREEN}[+] All active subdomains collected and saved to domain.live{NC}")
         else:
             print(f"{YELLOW}[!] No active subdomains found after dnsrecon and ffuf.{NC}")
@@ -670,124 +418,9 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
         print(f"{RED}[!] Error in active subdomain enumeration: {e}{NC}")
 
 
-def fetch_js_files(url, headers):
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        js_pattern = re.compile(r'src=["\'](.*?\.js.*?)["\']', re.IGNORECASE)
-        return [urljoin(url, js_file) for js_file in js_pattern.findall(response.text)]
-    except requests.exceptions.RequestException as e:
-        print(f"{YELLOW}[+] Error fetching JS files from {url}: {e}{NC}")
-        return []
-    except Exception as e:
-        print(f"{YELLOW}[+] An unexpected error occurred while fetching JS files from {url}: {e}{NC}")
-        return []
-
-def extract_endpoints(js_url, headers):
-    patterns = [
-        re.compile(r'https?:\/\/(?:[a-zA-Z0-9.-]+)\.[a-zA-Z0-9.-]+(?:\/[a-zA-Z0-9_-]+)*(?:\?[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+(?:&[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+)*)?'),
-        re.compile(r'\/(?:api|v\d+|graphql|gql|rest|wp-json|endpoint|service|data|public|private|internal|external)(?:\/[a-zA-Z0-9_-]+)*(?:\?[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+(?:&[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+)*)?'),
-        re.compile(r'(?<![\/\w])(?:api|v\d+|graphql|gql|rest|wp-json|endpoint|service|data|public|private|internal|external)(?:\/[a-zA-Z0-9_-]+)*(?:\?[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+(?:&[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+)*)?(?![a-zA-9_-])'),
-        re.compile(r'(["\'])([a-zA-Z][a-zA-Z0-9_-]{2,}\/[a-zA-Z0-9_-]{2,}(?:\/[a-zA-Z0-9_-]+)*(?:\?[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+(?:&[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+)*)?)(\1)'),
-        re.compile(r'(?:"[^"]*"|\'[^\']*\'|)(?<![\w\/])([a-zA-Z][a-zA-Z0-9_-]{1,}\/[a-zA-Z0-9_-]{2,}(?:\/[a-zA-Z0-9_-]+)*(?:\?[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+(?:&[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+)*)?)(?![\w-])'),
-        re.compile(r'(?<!\/)([a-zA-Z][a-zA-Z0-9_-]*\.(?:php|asp|jsp|aspx|cfm|cgi|pl|py|rb|do|action))(?:\?[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+(?:&[a-zA-Z0-9_-]+=[a-zA-Z0-9_-]+)*)?\b', re.IGNORECASE),
-    ]
-    try:
-        response = requests.get(js_url, headers=headers, timeout=10)
-        response.raise_for_status()
-        endpoints = set()
-        for pattern in patterns:
-            matches = pattern.findall(response.text)
-            if pattern.pattern.startswith(r'(["\'])'):
-                endpoints.update(match[1] for match in matches)
-            else:
-                endpoints.update(matches)
-        return endpoints
-    except requests.exceptions.RequestException as e:
-        print(f"{YELLOW}[+] Error extracting endpoints from {js_url}: {e}{NC}")
-        return set()
-    except Exception as e:
-        print(f"{YELLOW}[+] An unexpected error occurred while extracting endpoints from {js_url}: {e}{NC}")
-        return set()
-
-def normalize_endpoint(endpoint, base_url):
-    parsed_base = urlparse(base_url)
-    base_domain = f"{parsed_base.scheme}://{parsed_base.netloc}"
-    
-    if endpoint.startswith(('http://', 'https://')):
-        return endpoint
-    elif endpoint.startswith('/'):
-        return urljoin(base_domain, endpoint)
-    elif '.' in endpoint and not endpoint.startswith('/'):
-        if not endpoint.startswith(('http://', 'https://')):
-            return f"https://{endpoint}"
-        return endpoint
-    else:
-        return urljoin(base_domain, endpoint)
-
-def jslinks(domains, output="js_endpoints.txt", recursive=False, headers=None):
-    print(f"{YELLOW}[+] Discovering JS files and extracting endpoints...{NC}")
-    default_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-    }
-    headers = headers if headers else default_headers
-    
-    urls_to_crawl = []
-    for d in domains:
-        if not d.startswith(('http://', 'https://')):
-            urls_to_crawl.append(f"https://{d}")
-        else:
-            urls_to_crawl.append(d)
-    
-    found_endpoints = set()
-    if os.path.exists(output):
-        try:
-            with open(output, "r") as f:
-                found_endpoints.update(line.strip() for line in f if line.strip())
-        except Exception as e:
-            print(f"{RED}[!] Error reading existing {output}: {e}{NC}")
-    
-    visited_js = set()
-    queue = list(urls_to_crawl)
-
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(fetch_js_files, url, headers): url for url in urls_to_crawl}
-        
-        while futures:
-            done, _ = ThreadPoolExecutor().wait(futures, timeout=5)
-            
-            for future in done:
-                url_processed = futures.pop(future)
-                js_files_found = future.result()
-                
-                for js_url in js_files_found:
-                    if js_url not in visited_js:
-                        visited_js.add(js_url)
-                        
-                        extract_future = executor.submit(extract_endpoints, js_url, headers)
-                        extract_future.add_done_callback(
-                            lambda f: found_endpoints.update({normalize_endpoint(ep, js_url) for ep in f.result()})
-                        )
-                        if recursive and js_url not in queue:
-                            queue.append(js_url)
-
-            new_urls_to_process = [u for u in queue if u not in {f.url for f in futures.keys()}]
-            for u in new_urls_to_process:
-                futures[executor.submit(fetch_js_files, u, headers)] = u
-                queue.remove(u)
-
-            if not futures and not queue:
-                break
-            
-            time.sleep(0.5)
-
-    with open(output, "w") as f:
-        f.write("\n".join(sorted(found_endpoints)))
-    print(f"{GREEN}[+] JS endpoints saved to {output} (sorted and deduplicated){NC}")
-    
-    return list(found_endpoints)
-
-def crawl_urls(domain, domains_list, recursive=False, headers=None):
+def crawl_urls(domain, domains_list, recursive=False, headers=None,
+               enable_crawler=False, crawler_max_pages=10, crawler_output_format='json', crawler_headless=False):
+    """Performs URL discovery using waybackurls, katana, waymore, waybackrobots, and jslinks."""
     print(f"{YELLOW}[+] Running URL discovery and crawling...{NC}")
     
     temp_domains_file = "temp_domains_for_crawling.txt"
@@ -811,26 +444,96 @@ def crawl_urls(domain, domains_list, recursive=False, headers=None):
             if not success:
                 pass
     
-    jslinks(domains=domains_list, output="js_endpoints.txt", recursive=recursive, headers=headers)
-    
+    # Call external jslinks.py
+    jslinks_output_file = "js_endpoints.txt"
+    jslinks_domains_arg = " ".join(domains_list)
+    jslinks_cmd = f"jslinks -d {jslinks_domains_arg} -o {jslinks_output_file}"
+    if recursive:
+        jslinks_cmd += " -r"
+    if headers:
+        for k, v in headers.items():
+            jslinks_cmd += f" -H \"{k}: {v}\""
+            
+    print(f"{BLUE}[+] Running jslinks: {jslinks_cmd}{NC}")
+    # install_external_python_tool is called in autorecon() main logic
+    success, _ = run_command(jslinks_cmd, silent=True, check_install="jslinks")
+    if success:
+        print(f"{GREEN}[+] JS links discovery completed.{NC}")
+    else:
+        print(f"{RED}[!] Failed to run jslinks. Check installation or command.{NC}")
+
+
+    # Call external crawler.py if enabled
+    if enable_crawler:
+        print(f"{YELLOW}[+] Running dynamic website crawling with crawler.py...{NC}")
+        crawler_output_file = "crawler_endpoints.json"
+        crawler_headers_str = ""
+        if headers:
+            for k, v in headers.items():
+                crawler_headers_str += f" --header \"{k}: {v}\""
+        
+        start_url_for_crawler = domains_list[0] if domains_list else f"https://{domain}"
+        if not start_url_for_crawler.startswith(('http://', 'https://')):
+             start_url_for_crawler = f"https://{start_url_for_crawler}"
+
+        crawler_cmd = (
+            f"crawler -u {start_url_for_crawler} "
+            f"-m {crawler_max_pages} "
+            f"-o {crawler_output_file} "
+            f"-f {crawler_output_format}"
+        )
+        if crawler_headless:
+            crawler_cmd += " --headless"
+        if crawler_headers_str:
+            crawler_cmd += crawler_headers_str
+
+        print(f"{BLUE}[+] Running crawler: {crawler_cmd}{NC}")
+        # install_external_python_tool is called in autorecon() main logic
+        # Run non-silently to show manual login prompt
+        success, _ = run_command(crawler_cmd, silent=False, check_install="crawler")
+        if success and os.path.exists(crawler_output_file):
+            print(f"{GREEN}[+] Dynamic crawling with crawler.py completed.{NC}")
+            try:
+                with open(crawler_output_file, 'r') as f:
+                    crawler_results = json.load(f)
+                
+                # Extract URLs from crawler results and add to all_urls
+                # This will be merged with other URLs later
+                # Temporarily store, will be filtered below.
+                if 'all_urls' not in locals(): # Initialize if not already from other sources
+                    all_urls = set()
+                all_urls.update(entry['url'] for entry in crawler_results if 'url' in entry)
+
+                os.remove(crawler_output_file)
+            except json.JSONDecodeError:
+                print(f"{RED}[!] Failed to parse crawler.py JSON output. Skipping adding to URLs.{NC}")
+            except Exception as e:
+                print(f"{RED}Error processing crawler.py output: {e}{NC}")
+        else:
+            print(f"{RED}[!] Failed to run crawler.py or output not found. Check installation or command.{NC}")
+            
     all_urls = set()
     for file in ["wayback.txt", "katana.txt", "waymore.txt", "waybackrobots.txt", "js_endpoints.txt"]:
         if os.path.exists(file):
             with open(file, 'r', errors='ignore') as f:
                 all_urls.update(line.strip() for line in f if line.strip())
+            os.remove(file)
     
-    domain_pattern = re.compile(rf'https?://(?:[a-zA-Z0-9-]+\.)*{re.escape(domain)}(?:/|$|\?)', re.IGNORECASE)
-    filtered_urls = {url for url in all_urls if domain_pattern.match(url)}
-    
+    # Merge with URLs from crawler if it ran
+    if 'crawler_results' in locals():
+        all_urls.update(entry['url'] for entry in crawler_results if 'url' in entry)
+
+    filtered_urls = filter_and_normalize_entries(all_urls, domain, entry_type="url")
+
     with open("urls.txt", "w") as f:
         f.write("\n".join(sorted(filtered_urls)))
     
-    for file in ["wayback.txt", "katana.txt", "waymore.txt", "waybackrobots.txt", "js_endpoints.txt", temp_domains_file]:
-        if os.path.exists(file):
-            os.remove(file)
+    if os.path.exists(temp_domains_file):
+        os.remove(temp_domains_file)
     print(f"{GREEN}[+] URL discovery and crawling completed (sorted and deduplicated, filtered for {domain}){NC}")
 
 def port_and_service_enum():
+    """Conducts fast port scanning with naabu and detailed service detection with nmap."""
     print(f"{YELLOW}[+] Running port and service enumeration...{NC}")
     if not os.path.exists("ips.txt"):
         print(f"{RED}[!] ips.txt not found. Skipping port and service enumeration.{NC}")
@@ -848,6 +551,7 @@ def port_and_service_enum():
         print(f"{RED}[!] Failed to run naabu or output not found. Skipping detailed Nmap scan.{NC}")
 
 def web_content_discovery(domain):
+    """Performs web content discovery (directory brute-forcing) using gobuster."""
     print(f"{YELLOW}[+] Running web content discovery (gobuster/dirsearch)...{NC}")
     if not os.path.exists("domain.live"):
         print(f"{RED}[!] domain.live not found. Skipping web content discovery.{NC}")
@@ -865,36 +569,41 @@ def web_content_discovery(domain):
     gobuster_futures = []
     with ThreadPoolExecutor(max_workers=5) as executor:
         for d in live_domains_list:
-            output_file = f"gobuster_output_{d.replace('://', '_').replace('/', '_')}.txt"
-            cmd = f"gobuster dir -u {d} -w {wordlist} -o {output_file} -t 50 -k" 
+            cmd = f"gobuster dir -u {d} -w {wordlist} -t 50 -k" 
             print(f"{BLUE}[+] Running gobuster on {d}...{NC}")
-            gobuster_futures.append(executor.submit(run_command, cmd, silent=True, check_install="gobuster"))
+            gobuster_futures.append(executor.submit(run_command, cmd, silent=True, capture_output=True, check_install="gobuster"))
     
-        for future in gobuster_futures:
-            success, _ = future.result()
-            if not success:
-                print(f"{RED}[!] One gobuster instance failed.{NC}")
+        all_discovered_paths_raw = set()
+        for i, future in enumerate(gobuster_futures):
+            success, gobuster_output = future.result()
+            if success and gobuster_output:
+                for line in gobuster_output.splitlines():
+                    match = re.match(r'^(/[^ ]+)', line.strip())
+                    if match:
+                        all_discovered_paths_raw.add(match.group(1))
+            else:
+                print(f"{RED}[!] One gobuster instance failed or had no output.{NC}")
 
-    all_discovered_paths = set()
-    for d in live_domains_list:
-        output_file = f"gobuster_output_{d.replace('://', '_').replace('/', '_')}.txt"
-        if os.path.exists(output_file):
-            try:
-                with open(output_file, 'r') as f:
-                    all_discovered_paths.update(line.strip() for line in f if line.strip().startswith('/'))
-                os.remove(output_file)
-            except Exception as e:
-                print(f"{RED}Error processing {output_file}: {e}{NC}")
+    all_discovered_urls = set()
+    for live_domain_url in live_domains_list:
+        parsed_live_domain = urlparse(live_domain_url)
+        base_url_for_paths = f"{parsed_live_domain.scheme}://{parsed_live_domain.netloc}"
+        for path in all_discovered_paths_raw:
+            full_url = urljoin(base_url_for_paths, path)
+            all_discovered_urls.add(full_url)
+
+    filtered_discovered_urls = filter_and_normalize_entries(all_discovered_urls, domain, entry_type="url")
     
-    if all_discovered_paths:
+    if filtered_discovered_urls:
         with open("discovered_paths.txt", "w") as f:
-            f.write("\n".join(sorted(all_discovered_paths)))
-        print(f"{GREEN}[+] All discovered paths saved to discovered_paths.txt{NC}")
+            f.write("\n".join(sorted(filtered_discovered_urls)))
+        print(f"{GREEN}[+] All discovered URLs (from web content discovery) saved to discovered_paths.txt{NC}")
     else:
-        print(f"{YELLOW}[!] No additional web content paths found with gobuster.{NC}")
+        print(f"{YELLOW}[!] No additional web content URLs found with gobuster.{NC}")
 
 
 def vulnerability_scanning():
+    """Performs basic vulnerability scanning with Nuclei."""
     print(f"{YELLOW}[+] Running vulnerability scanning with Nuclei...{NC}")
     if not os.path.exists("urls.txt") and not os.path.exists("domain.live"):
         print(f"{RED}[!] No URLs or live domains found. Skipping vulnerability scanning.{NC}")
@@ -916,13 +625,15 @@ def vulnerability_scanning():
     else:
         print(f"{RED}[!] Failed to run Nuclei. Check installation or template path.{NC}")
 
-def parameter_discovery():
+def parameter_discovery(main_target_domain):
+    """Identifies potential URL parameters using paramspider."""
     print(f"{YELLOW}[+] Running parameter discovery...{NC}")
     if not os.path.exists("urls.txt"):
         print(f"{RED}[!] urls.txt not found. Skipping parameter discovery.{NC}")
         return
 
-    paramspider_output_file = "discovered_parameters.txt"
+    paramspider_output_file = "discovered_parameters_raw.txt"
+    final_output_file = "discovered_parameters.txt"
     
     cmd = f"paramspider --domain-list urls.txt --output {paramspider_output_file}"
     
@@ -930,13 +641,26 @@ def parameter_discovery():
     success, _ = run_command(cmd, silent=True, check_install="paramspider") 
 
     if success and os.path.exists(paramspider_output_file):
-        print(f"{GREEN}[+] Parameter discovery completed. Results saved to {paramspider_output_file}.{NC}")
+        all_params = set()
+        with open(paramspider_output_file, 'r') as f:
+            all_params.update(line.strip() for line in f if line.strip())
+        os.remove(paramspider_output_file)
+
+        filtered_params = filter_and_normalize_entries(all_params, main_target_domain, entry_type="url")
+        
+        if filtered_params:
+            with open(final_output_file, "w") as f:
+                f.write("\n".join(sorted(filtered_params)))
+            print(f"{GREEN}[+] Parameter discovery completed. Results saved to {final_output_file}.{NC}")
+        else:
+            print(f"{YELLOW}[!] No parameters found or all filtered out.{NC}")
     else:
         print(f"{RED}[!] Failed to run ParamSpider or output not found. Ensure ParamSpider is installed and accessible.{NC}")
         print(f"{YELLOW}[!] Consider manually running 'cat urls.txt | unfurl --unique paths | sort -u' to get unique paths for manual parameter testing.{NC}")
 
 
 def screenshot_websites():
+    """Takes screenshots of live websites using httpx."""
     print(f"{YELLOW}[+] Taking screenshots of live websites with httpx...{NC}")
     if not os.path.exists("domain.live"):
         print(f"{RED}[!] domain.live not found. Skipping screenshotting.{NC}")
@@ -955,6 +679,7 @@ def screenshot_websites():
 
 
 def js_secrets_and_endpoints_analysis():
+    """Analyzes JavaScript files for secrets and additional endpoints using SecretFinder."""
     print(f"{YELLOW}[+] Analyzing JavaScript files for secrets and additional endpoints...{NC}")
     if not os.path.exists("js_endpoints.txt"):
         print(f"{RED}[!] js_endpoints.txt not found. Skipping JS secrets/endpoints analysis.{NC}")
@@ -971,25 +696,23 @@ def js_secrets_and_endpoints_analysis():
     secrets_output_file = "js_secrets.txt"
     extracted_secrets = set()
     
-    secretfinder_path = Path("/usr/local/bin/secretfinder") # Assuming it's symlinked here
-    if not secretfinder_path.exists():
-        print(f"{RED}[!] SecretFinder (symlink) not found at {secretfinder_path}. Skipping secret analysis.{NC}")
-        print(f"{YELLOW}    Please ensure SecretFinder is installed and symlinked as 'secretfinder' in /usr/local/bin.{NC}")
-        return
+    secretfinder_path = Path("/usr/local/bin/secretfinder")
 
-    secret_futures = []
     with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = []
         for js_url in js_files_to_analyze:
-            temp_secret_file = f"temp_secret_{abs(hash(js_url))}.json" # Use abs(hash) to ensure positive filename
-            # Note: SecretFinder's -o expects a path, it creates the file.
+            temp_secret_file = f"temp_secret_{abs(hash(js_url))}.json"
             cmd = f"python3 {secretfinder_path} -i {js_url} -o {temp_secret_file}"
             print(f"{BLUE}[+] Running SecretFinder on {js_url}...{NC}")
-            secret_futures.append(executor.submit(run_command, cmd, silent=True))
+            # Submit the command and store a future, check_install ensures tool is present before running
+            futures.append(executor.submit(run_command, cmd, silent=True, check_install="secretfinder" if secretfinder_path.exists() else None))
 
-        for future in secret_futures:
-            success, _ = future.result()
-            if not success:
-                print(f"{RED}[!] One SecretFinder instance failed.{NC}")
+        for future in futures:
+            success, _ = future.result() # Wait for each SecretFinder command to complete
+            if not success and secretfinder_path.exists(): # If command failed despite tool being present
+                print(f"{RED}[!] One SecretFinder instance failed to execute.{NC}")
+            elif not success and not secretfinder_path.exists(): # Tool not found, handled earlier but for completeness
+                 pass # Message already printed by run_command
 
     for js_url in js_files_to_analyze:
         temp_secret_file = f"temp_secret_{abs(hash(js_url))}.json"
@@ -998,7 +721,7 @@ def js_secrets_and_endpoints_analysis():
                 with open(temp_secret_file, "r") as f:
                     secrets_data = json.load(f)
                     for entry in secrets_data:
-                        extracted_secrets.add(json.dumps(entry))
+                        extracted_secrets.add(json.dumps(entry, sort_keys=True))
                 os.remove(temp_secret_file)
             except json.JSONDecodeError:
                 print(f"{RED}[!] Failed to parse SecretFinder JSON from {temp_secret_file}. File might be empty or malformed.{NC}")
@@ -1014,7 +737,9 @@ def js_secrets_and_endpoints_analysis():
         print(f"{YELLOW}[!] No secrets or sensitive data found in JavaScript files.{NC}")
 
 
-def autorecon(project_name=None, domains=None, crawl=False, recursive=False, headers=None, threads=4, enable_all_recon=False, custom_wordlist=None):
+def autorecon(project_name=None, domains=None, crawl=False, recursive=False, headers=None, threads=4, enable_all_recon=False, custom_wordlist=None,
+              enable_crawler=False, crawler_max_pages=10, crawler_output_format='json', crawler_headless=False):
+    """Main function to orchestrate the reconnaissance process."""
     print_banner()
     
     if not project_name:
@@ -1023,7 +748,11 @@ def autorecon(project_name=None, domains=None, crawl=False, recursive=False, hea
     
     project_path = setup_project(project_name)
     
-    configure_tool_apikeys()
+    # Install external tools if not found. These will only be installed once.
+    install_external_python_tool("jslinks", "https://github.com/00xmora/jslinks.git", "jslinks.py", "jslinks")
+    if enable_crawler:
+        install_external_python_tool("crawler", "https://github.com/00xmora/crawler.git", "crawler.py", "crawler")
+
 
     if not domains and not crawl and not enable_all_recon:
         print(f"{YELLOW}[+] No domains (-d), crawling (--crawl), or all recon (--all-recon) requested. Nothing to do.{NC}")
@@ -1041,11 +770,11 @@ def autorecon(project_name=None, domains=None, crawl=False, recursive=False, hea
             passive_subdomain_enum(domain, threads)
             
             # Phase 2: Live Domain Filtering
-            filter_live_domains()
+            filter_live_domains(domain)
             
             # Phase 3: Active Subdomain Enumeration (dnsrecon, ffuf) if requested
             if args.active or enable_all_recon:
-                active_subdomain_enum(domain, custom_wordlist_path=custom_wordlist) # Pass custom wordlist
+                active_subdomain_enum(domain, custom_wordlist_path=custom_wordlist)
             
             # Phase 4: URL Discovery and Crawling
             if crawl or enable_all_recon:
@@ -1053,7 +782,13 @@ def autorecon(project_name=None, domains=None, crawl=False, recursive=False, hea
                     with open("domain.live") as f:
                         domains_list = f.read().splitlines()
                     if domains_list:
-                        crawl_urls(domain, domains_list, recursive=recursive, headers=headers)
+                        crawl_urls(
+                            domain, domains_list, recursive=recursive, headers=headers,
+                            enable_crawler=enable_crawler,
+                            crawler_max_pages=crawler_max_pages,
+                            crawler_output_format=crawler_output_format,
+                            crawler_headless=crawler_headless
+                        )
                     else:
                         print(f"{YELLOW}[!] domain.live is empty, skipping crawling for {domain}.{NC}")
                 else:
@@ -1069,7 +804,7 @@ def autorecon(project_name=None, domains=None, crawl=False, recursive=False, hea
             
             # Phase 7: Parameter Discovery
             if (args.params_discovery or enable_all_recon) and os.path.exists("urls.txt"):
-                parameter_discovery()
+                parameter_discovery(domain)
 
             # Phase 8: Screenshot Websites
             if (args.screenshots or enable_all_recon) and os.path.exists("domain.live"):
@@ -1091,18 +826,16 @@ def autorecon(project_name=None, domains=None, crawl=False, recursive=False, hea
     print(f"{GREEN}{BOLD}\n[+] All tasks completed. Results in '{project_name}' directory{NC}")
 
 if __name__ == "__main__":
-    import argparse
     parser = argparse.ArgumentParser(description="AutoRecon in Python")
     parser.add_argument("-n", "--project-name", help="Project name", required=True)
     parser.add_argument("-d", "--domains", nargs="*", help="List of domains (e.g., example.com sub.example.org)")
-    parser.add_argument("-w", "--wordlist", help="Path to a custom wordlist for DNS enumeration (dnsrecon) and FFUF (overrides default seclists wordlist)") # New wordlist arg
+    parser.add_argument("-w", "--wordlist", help="Path to a custom wordlist for DNS enumeration (dnsrecon) and FFUF (overrides default seclists wordlist)")
     parser.add_argument("--crawl", action="store_true", help="Enable URL discovery and crawling (waybackurls, katana, waymore, jslinks)")
     parser.add_argument("-active", action="store_true", help="Enable active subdomain enumeration (dnsrecon and ffuf)")
-    parser.add_argument("-r", "--recursive", action="store_true", help="Enable recursive JS crawling (used with --crawl)")
+    parser.add_argument("-r", "--recursive", action="store_true", help="Enable recursive JS endpoint extraction (used with --crawl)")
     parser.add_argument("-H", "--header", action="append", help="Custom headers for HTTP requests (format: 'Header-Name: value')")
     parser.add_argument("-t", "--threads", type=int, default=10, help="Number of threads for concurrent execution (default: 10)")
     
-    # New arguments for additional automation
     parser.add_argument("--all-recon", action="store_true", help="Enable all reconnaissance phases (active enum, crawl, ports, web content, params, screenshots, js analysis, vuln scan)")
     parser.add_argument("--ports-scan", action="store_true", help="Enable port and service enumeration with naabu and nmap")
     parser.add_argument("--web-content-discovery", action="store_true", help="Enable web content discovery (directory brute-forcing)")
@@ -1110,6 +843,12 @@ if __name__ == "__main__":
     parser.add_argument("--screenshots", action="store_true", help="Enable taking screenshots of live websites")
     parser.add_argument("--js-analysis", action="store_true", help="Enable analysis of JavaScript files for secrets and endpoints")
     parser.add_argument("--vuln-scan", action="store_true", help="Enable basic vulnerability scanning with Nuclei")
+
+    # Arguments for crawler.py integration
+    parser.add_argument("--enable-crawler", action="store_true", help="Enable dynamic crawling with crawler.py (requires manual login interaction)")
+    parser.add_argument("--crawler-max-pages", type=int, default=10, help="Maximum number of pages for crawler.py to crawl (default: 10)")
+    parser.add_argument("--crawler-output-format", choices=['json', 'txt', 'csv'], default='json', help="Output format for crawler.py (json, txt, csv). Note: AutoRecon processes JSON internally.")
+    parser.add_argument("--crawler-headless", action="store_true", help="Run crawler.py in headless browser mode.")
 
     args = parser.parse_args()
     
@@ -1131,5 +870,9 @@ if __name__ == "__main__":
         headers=custom_headers,
         threads=args.threads,
         enable_all_recon=args.all_recon,
-        custom_wordlist=args.wordlist # Pass custom wordlist
+        custom_wordlist=args.wordlist,
+        enable_crawler=args.enable_crawler,
+        crawler_max_pages=args.crawler_max_pages,
+        crawler_output_format=args.crawler_output_format,
+        crawler_headless=args.crawler_headless
     )
