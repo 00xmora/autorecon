@@ -61,10 +61,11 @@ def run_command(command, silent=False, output_file=None, capture_output=False, c
         except subprocess.CalledProcessError:
             print(f"{RED}[!] Error: Tool '{check_install}' not found. Please install it and ensure it's in your PATH.{NC}")
             return False, None
-    
+
     try:
         if capture_output:
-            result = subprocess.run(command, shell=True, check=True, capture_output=True, text=True, stderr=subprocess.DEVNULL)
+            result = subprocess.run(command, shell=True, check=True,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             return True, result.stdout.strip()
         elif silent and output_file:
             with open(output_file, 'w') as f:
@@ -76,7 +77,9 @@ def run_command(command, silent=False, output_file=None, capture_output=False, c
     except subprocess.CalledProcessError as e:
         print(f"{RED}Error running command: {command} - {e}{NC}")
         return False, None
+
     return True, None
+
 
 def install_external_python_tool(tool_name, repo_url, script_name_in_repo, symlink_name):
     """Installs a Python-based external tool from a Git repository if it's not found."""

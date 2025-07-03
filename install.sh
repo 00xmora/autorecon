@@ -21,7 +21,7 @@ sudo apt update
 
 echo -e "${YELLOW}${BOLD}[+] Installing necessary system packages...${NC}"
 # Keeping original packages, add chromium-browser and chromedriver for optional crawler.py usage
-sudo apt install -y git curl wget python3 python3-venv python3-pip golang libcurl4-openssl-dev libssl-dev unzip dnsutils chromium-browser chromium-chromedriver
+sudo apt install -y git curl wget python3 python3-venv python3-pip golang libcurl4-openssl-dev libssl-dev unzip dnsutils chromium-driver
 
 # Ensure pipx is installed and in PATH
 echo -e "${YELLOW}${BOLD}[+] Installing pipx...${NC}"
