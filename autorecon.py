@@ -2,10 +2,8 @@
 
 import os
 import subprocess
-import requests
 import re
 import json
-import time
 from pathlib import Path
 from urllib.parse import urljoin, urlparse, urlunparse, parse_qs
 from concurrent.futures import ThreadPoolExecutor
@@ -79,7 +77,6 @@ def run_command(command, silent=False, output_file=None, capture_output=False, c
         return False, None
 
     return True, None
-
 
 def install_external_python_tool(tool_name, repo_url, script_name_in_repo, symlink_name):
     """Installs a Python-based external tool from a Git repository if it's not found."""
@@ -253,39 +250,51 @@ def filter_live_domains(main_target_domain):
         return
 
     live_subdomains_file = "domain.live"
-    success, _ = run_command(
-        f"cat domains.txt | httpx -silent -fc 400,401,403,404,405,406,407,408,409,410,411,412,413,414,415,416,417,418,421,422,423,424,425,426,428,429,431,451,500,501,502,503,504,505,506,507,508,510,511 -t 100 -o {live_subdomains_file}",
-        silent=True, check_install="httpx"
+    ports = "80,81,82,443,444,8000,8080,8081,8443"
+
+    # Run httpx once with all required flags
+    success, output = run_command(
+        f"cat domains.txt | httpx -silent -ip -json -ports {ports}",
+        silent=True, capture_output=True, check_install="httpx"
     )
-    
-    if success:
-        print(f"{GREEN}[+] Live domains filtered and saved to {live_subdomains_file}{NC}")
-        success_ips, ips_output = run_command(
-            f"cat domains.txt | httpx -silent -ip -json",
-            silent=True, capture_output=True, check_install="httpx"
-        )
-        if success_ips and ips_output:
-            unique_ips = set()
-            try:
-                for line in ips_output.splitlines():
-                    try:
-                        data = json.loads(line)
-                        if 'ip' in data:
-                            unique_ips.add(data['ip'])
-                    except json.JSONDecodeError:
-                        pass
-                
-                filtered_ips = filter_and_normalize_entries(unique_ips, main_target_domain, entry_type="ip")
-                
-                with open("ips.txt", "w") as f:
-                    f.write("\n".join(sorted(filtered_ips)))
-                print(f"{GREEN}[+] Extracted unique IPs to ips.txt{NC}")
-            except Exception as e:
-                print(f"{RED}[!] Error extracting IPs: {e}{NC}")
-        else:
-            print(f"{YELLOW}[!] No IPs extracted or httpx failed to output JSON.{NC}")
+
+    if success and output:
+        live_domains = set()
+        unique_ips = set()
+
+        try:
+            for line in output.splitlines():
+                try:
+                    data = json.loads(line)
+
+                    # Save domain with port
+                    if "url" in data:
+                        live_domains.add(data["url"])
+
+                    # Save all resolved IPs
+                    if "a" in data:
+                        for ip in data["a"]:
+                            unique_ips.add(ip)
+                    elif "ip" in data:  # fallback
+                        unique_ips.add(data["ip"])
+                except json.JSONDecodeError:
+                    continue
+
+            # Write live domains
+            with open(live_subdomains_file, "w") as f:
+                f.write("\n".join(sorted(live_domains)))
+            print(f"{GREEN}[+] Live domains saved to {live_subdomains_file}{NC}")
+
+            # Filter and write IPs
+            filtered_ips = filter_and_normalize_entries(unique_ips, main_target_domain, entry_type="ip")
+            with open("ips.txt", "w") as f:
+                f.write("\n".join(sorted(filtered_ips)))
+            print(f"{GREEN}[+] Extracted unique IPs to ips.txt{NC}")
+
+        except Exception as e:
+            print(f"{RED}[!] Error processing httpx output: {e}{NC}")
     else:
-        print(f"{RED}[!] Failed to filter live domains with httpx. Check if httpx is installed and accessible.{NC}")
+        print(f"{RED}[!] httpx scan failed or returned no output.{NC}")
 
 def _run_dnsrecon(domain, wordlist, ns_option, output_file, live_domains_set):
     """Helper function to run dnsrecon and parse its JSON output."""
@@ -318,7 +327,7 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
     """Performs active subdomain enumeration using dnsrecon and ffuf."""
     print(f"{YELLOW}[+] Running active subdomain enumeration with dnsrecon and ffuf...{NC}")
     try:
-        success, ns_records_str = run_command(f"dig @8.8.8.8 NS {domain} +short", silent=True, capture_output=True, check_install="dig")
+        success, ns_records_str = run_command(f"dig NS {domain} +short +timeout=5", silent=True, capture_output=True, check_install="dig")
         dns_servers = set()
         if success and ns_records_str:
             dns_servers = {line.strip().rstrip('.') for line in ns_records_str.splitlines() if line.strip()}
@@ -327,14 +336,14 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
         if dns_servers:
             print(f"{BLUE}[+] Resolved NS records for {domain}: {', '.join(dns_servers)}{NC}")
             for ns in dns_servers:
-                success_ip, ip_str = run_command(f"dig @8.8.8.8 A {ns} +short", silent=True, capture_output=True, check_install="dig")
+                success_ip, ip_str = run_command(f"dig A {ns} +short +timeout=5", silent=True, capture_output=True, check_install="dig")
                 if success_ip and ip_str:
                     ips = [line.strip() for line in ip_str.splitlines() if line.strip() and re.match(r"^\d+\.\d+\.\d+\.\d+$", line)]
                     if ips:
                         ns_ips.append(ips[0])
         
         wordlist_path_dnsrecon = Path(SECLISTS_PATH) / "Discovery" / "DNS" / "subdomains-top1million-110000.txt"
-        wordlist_path_ffuf = Path(SECLISTS_PATH) / "Discovery" / "Web-Content" / "subdomains-top1million-110000.txt"
+        wordlist_path_ffuf = Path(SECLISTS_PATH) / "Discovery" / "DNS" / "subdomains-top1million-110000.txt"
 
         if custom_wordlist_path and Path(custom_wordlist_path).exists():
             wordlist_dnsrecon = str(custom_wordlist_path)
