@@ -295,126 +295,80 @@ def filter_live_domains(main_target_domain):
     else:
         print(f"{RED}[!] httpx scan failed or returned no output.{NC}")
 
-def _run_dnsrecon(domain, wordlist, ns_option, output_file, live_domains_set):
-    """Helper function to run dnsrecon and parse its JSON output."""
-    cmd = f"dnsrecon -d {domain} -t brt -D {wordlist} {ns_option} --lifetime 10 --threads 50 -j {output_file} -f"
-    
-    print(f"{BLUE}[+] Running: {cmd}{NC}")
-    
-    if run_command(cmd, silent=True, check_install="dnsrecon"):
-        if os.path.exists(output_file):
-            try:
-                with open(output_file, "r") as f:
-                    data = json.load(f)
-                    for record in data:
-                        if record.get("type") in ["A", "CNAME"] and record.get("name", "").endswith(f".{domain}"):
-                            live_domains_set.add(record.get("name"))
-                print(f"{GREEN}[+] Successfully parsed dnsrecon output from {output_file}{NC}")
-            except json.JSONDecodeError:
-                print(f"{RED}[!] Failed to parse dnsrecon JSON output for {output_file}. File might be empty or malformed.{NC}")
-            except Exception as e:
-                print(f"{RED}[!] Error reading {output_file}: {e}{NC}")
-            finally:
-                os.remove(output_file)
-        else:
-            print(f"{YELLOW}[!] dnsrecon output file {output_file} not found, even though command reported success.{NC}")
-    else:
-        print(f"{RED}[!] Failed to run dnsrecon with {ns_option}. Check if dnsrecon is installed and accessible.{NC}")
-
 
 def active_subdomain_enum(domain, custom_wordlist_path=None):
-    """Performs active subdomain enumeration using dnsrecon and ffuf."""
-    print(f"{YELLOW}[+] Running active subdomain enumeration with dnsrecon and ffuf...{NC}")
+    """Performs active subdomain and virtual host enumeration using ffuf only."""
+    print(f"{YELLOW}[+] Running active subdomain enumeration and virtual host fuzzing using FFUF...{NC}")
+
     try:
-        success, ns_records_str = run_command(f"dig NS {domain} +short +timeout=5", silent=True, capture_output=True, check_install="dig")
-        dns_servers = set()
-        if success and ns_records_str:
-            dns_servers = {line.strip().rstrip('.') for line in ns_records_str.splitlines() if line.strip()}
-        
-        ns_ips = []
-        if dns_servers:
-            print(f"{BLUE}[+] Resolved NS records for {domain}: {', '.join(dns_servers)}{NC}")
-            for ns in dns_servers:
-                success_ip, ip_str = run_command(f"dig A {ns} +short +timeout=5", silent=True, capture_output=True, check_install="dig")
-                if success_ip and ip_str:
-                    ips = [line.strip() for line in ip_str.splitlines() if line.strip() and re.match(r"^\d+\.\d+\.\d+\.\d+$", line)]
-                    if ips:
-                        ns_ips.append(ips[0])
-        
-        wordlist_path_dnsrecon = Path(SECLISTS_PATH) / "Discovery" / "DNS" / "subdomains-top1million-5000.txt"
-        wordlist_path_ffuf = Path(SECLISTS_PATH) / "Discovery" / "DNS" / "subdomains-top1million-110000.txt"
+        wordlist_path = Path(SECLISTS_PATH) / "Discovery" / "DNS" / "subdomains-top1million-110000.txt"
 
         if custom_wordlist_path and Path(custom_wordlist_path).exists():
-            wordlist_dnsrecon = str(custom_wordlist_path)
-            wordlist_ffuf = str(custom_wordlist_path)
-            print(f"{BLUE}[+] Using custom wordlist for DNS recon and FFUF: {custom_wordlist_path}{NC}")
+            wordlist = str(custom_wordlist_path)
+            print(f"{BLUE}[+] Using custom wordlist: {custom_wordlist_path}{NC}")
         else:
-            wordlist_dnsrecon = str(wordlist_path_dnsrecon)
-            wordlist_ffuf = str(wordlist_path_ffuf)
-            if not Path(wordlist_dnsrecon).exists():
-                print(f"{RED}[!] Default DNS wordlist not found: {wordlist_dnsrecon}. Please ensure Seclists is installed and configured.{NC}")
+            wordlist = str(wordlist_path)
+            if not Path(wordlist).exists():
+                print(f"{RED}[!] Default wordlist not found: {wordlist}. Ensure Seclists is installed.{NC}")
                 return
-            if not Path(wordlist_ffuf).exists():
-                print(f"{RED}[!] Default FFUF wordlist not found: {wordlist_ffuf}. Please ensure Seclists is installed and configured.{NC}")
-                wordlist_ffuf = None 
-            print(f"{BLUE}[+] Using default wordlists.{NC}")
+            print(f"{BLUE}[+] Using default wordlist.{NC}")
 
         live_domains = set()
-        if os.path.exists("domain.live"):
-            with open("domain.live", "r") as dl:
-                live_domains = set(dl.read().splitlines())
-        
-        dnsrecon_futures = []
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            if ns_ips:
-                ns_list_str = ",".join(ns_ips)
-                print(f"{BLUE}[+] Querying name servers for dnsrecon: {ns_list_str}{NC}")
-                for i, ns_ip in enumerate(ns_ips):
-                    ns_option = f"-n {ns_ip}"
-                    dnsrecon_output_file = f"dnsrecon_output_{i}.json"
-                    dnsrecon_futures.append(executor.submit(_run_dnsrecon, domain, wordlist_dnsrecon, ns_option, dnsrecon_output_file, live_domains))
-            else:
-                print(f"{YELLOW}[!] No authoritative DNS server IPs resolved, using system resolvers for dnsrecon.{NC}")
-                dnsrecon_output_file = "dnsrecon_output_system.json"
-                dnsrecon_futures.append(executor.submit(_run_dnsrecon, domain, wordlist_dnsrecon, "", dnsrecon_output_file, live_domains))
-            
-            for future in dnsrecon_futures:
-                future.result()
 
-        if wordlist_ffuf:
-            print(f"{YELLOW}[+] Running FFUF for virtual host enumeration...{NC}")
-            ffuf_output_file = "ffuf_vhosts.json"
-            ffuf_cmd = (
-                f"ffuf -w {wordlist_ffuf}:FUZZ "
-                f"-u http://{domain} "
-                f"-H \"Host: FUZZ.{domain}\" "
-                f"-mc all "
-                f"-sf "
-                f"-o {ffuf_output_file} -ot json"
-            )
-            print(f"{BLUE}[+] Running FFUF: {ffuf_cmd}{NC}")
-            if run_command(ffuf_cmd, silent=True, check_install="ffuf"):
-                if os.path.exists(ffuf_output_file):
-                    try:
-                        with open(ffuf_output_file, "r") as f:
-                            ffuf_data = json.load(f)
-                            for result in ffuf_data.get("results", []):
-                                if result.get("status") in [200, 301, 302, 307, 308]:
-                                    fuzzed_host = result.get("input", {}).get("FUZZ", "")
-                                    if fuzzed_host:
-                                        full_subdomain = f"{fuzzed_host}.{domain}"
-                                        live_domains.add(full_subdomain)
-                        print(f"{GREEN}[+] FFUF virtual host enumeration completed.{NC}")
-                    except json.JSONDecodeError:
-                        print(f"{RED}[!] Failed to parse FFUF JSON output for {ffuf_output_file}. File might be empty or malformed.{NC}")
-                    except Exception as e:
-                        print(f"{RED}[!] Error reading {ffuf_output_file}: {e}{NC}")
-                    finally:
-                        os.remove(ffuf_output_file)
-                else:
-                    print(f"{YELLOW}[!] FFUF output file {ffuf_output_file} not found.{NC}")
-            else:
-                print(f"{RED}[!] FFUF command failed. Ensure ffuf is installed and accessible.{NC}")
+        # Subdomain brute-forcing using FFUF
+        print(f"{YELLOW}[+] Running FFUF for subdomain enumeration...{NC}")
+        ffuf_sub_output = "ffuf_subdomains.json"
+        ffuf_sub_cmd = (
+            f"ffuf -w {wordlist} "
+            f"-u http://FUZZ.{domain} "
+            f"-mc all "
+            f"-sf "
+            f"-o {ffuf_sub_output} -ot json"
+        )
+        if run_command(ffuf_sub_cmd, silent=True, check_install="ffuf"):
+            if os.path.exists(ffuf_sub_output):
+                try:
+                    with open(ffuf_sub_output, "r") as f:
+                        ffuf_data = json.load(f)
+                        for result in ffuf_data.get("results", []):
+                            if result.get("status") in [200, 301, 302, 307, 308]:
+                                fuzzed = result.get("input", {}).get("FUZZ", "")
+                                if fuzzed:
+                                    full = f"{fuzzed}.{domain}"
+                                    live_domains.add(full)
+                    print(f"{GREEN}[+] FFUF subdomain enumeration completed.{NC}")
+                except Exception as e:
+                    print(f"{RED}[!] Error reading FFUF output: {e}{NC}")
+                finally:
+                    os.remove(ffuf_sub_output)
+
+        # Virtual host enumeration using Host header
+        print(f"{YELLOW}[+] Running FFUF for virtual host fuzzing...{NC}")
+        ffuf_vhost_output = "ffuf_vhosts.json"
+        ffuf_vhost_cmd = (
+            f"ffuf -w {wordlist}:FUZZ "
+            f"-u http://{domain} "
+            f"-H \"Host: FUZZ.{domain}\" "
+            f"-mc all "
+            f"-sf "
+            f"-o {ffuf_vhost_output} -ot json"
+        )
+        if run_command(ffuf_vhost_cmd, silent=True, check_install="ffuf"):
+            if os.path.exists(ffuf_vhost_output):
+                try:
+                    with open(ffuf_vhost_output, "r") as f:
+                        ffuf_data = json.load(f)
+                        for result in ffuf_data.get("results", []):
+                            if result.get("status") in [200, 301, 302, 307, 308]:
+                                fuzzed = result.get("input", {}).get("FUZZ", "")
+                                if fuzzed:
+                                    full = f"{fuzzed}.{domain}"
+                                    live_domains.add(full)
+                    print(f"{GREEN}[+] FFUF virtual host fuzzing completed.{NC}")
+                except Exception as e:
+                    print(f"{RED}[!] Error reading FFUF vhost output: {e}{NC}")
+                finally:
+                    os.remove(ffuf_vhost_output)
 
         filtered_live_domains = filter_and_normalize_entries(live_domains, domain, entry_type="domain")
 
@@ -423,10 +377,11 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
                 f.write("\n".join(sorted(filtered_live_domains)))
             print(f"{GREEN}[+] All active subdomains collected and saved to domain.live{NC}")
         else:
-            print(f"{YELLOW}[!] No active subdomains found after dnsrecon and ffuf.{NC}")
-            
+            print(f"{YELLOW}[!] No active subdomains found with FFUF.{NC}")
+
     except Exception as e:
         print(f"{RED}[!] Error in active subdomain enumeration: {e}{NC}")
+
 
 
 def crawl_urls(domain, domains_list, recursive=False, headers=None,
