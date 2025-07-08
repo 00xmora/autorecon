@@ -323,7 +323,7 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
             f"-u http://FUZZ.{domain} "
             f"-mc all "
             f"-sf "
-            f"-o {ffuf_sub_output} -ot json"
+            f"-o {ffuf_sub_output} -of json"
         )
         if run_command(ffuf_sub_cmd, silent=True, check_install="ffuf"):
             if os.path.exists(ffuf_sub_output):
@@ -346,12 +346,12 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
         print(f"{YELLOW}[+] Running FFUF for virtual host fuzzing...{NC}")
         ffuf_vhost_output = "ffuf_vhosts.json"
         ffuf_vhost_cmd = (
-            f"ffuf -w {wordlist}:FUZZ "
+            f"ffuf -w {wordlist} "
             f"-u http://{domain} "
             f"-H \"Host: FUZZ.{domain}\" "
             f"-mc all "
             f"-sf "
-            f"-o {ffuf_vhost_output} -ot json"
+            f"-o {ffuf_vhost_output} -of json"
         )
         if run_command(ffuf_vhost_cmd, silent=True, check_install="ffuf"):
             if os.path.exists(ffuf_vhost_output):
