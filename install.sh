@@ -111,7 +111,7 @@ if ! command_exists "paramspider"; then
     git clone https://github.com/devanshbatham/ParamSpider.git /opt/ParamSpider
     cd /opt/ParamSpider/
     # paramspider uses requirements.txt, not setup.py
-    sudo pip3 install -r requirements.txt --break-system-packages
+    python3 setup.py install
     cd - > /dev/null
     # Create a symlink to make it globally executable
     sudo ln -sf /opt/ParamSpider/paramspider.py /usr/local/bin/paramspider
