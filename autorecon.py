@@ -183,7 +183,6 @@ def filter_and_normalize_entries(entries, main_target_domain, entry_type="url", 
             
     return normalized_filtered_entries
 
-
 def setup_project(project_name):
     """Creates the main project directory."""
     project_path = Path(project_name).resolve()
@@ -342,7 +341,7 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
                     if ips:
                         ns_ips.append(ips[0])
         
-        wordlist_path_dnsrecon = Path(SECLISTS_PATH) / "Discovery" / "DNS" / "subdomains-top1million-110000.txt"
+        wordlist_path_dnsrecon = Path(SECLISTS_PATH) / "Discovery" / "DNS" / "subdomains-top1million-5000.txt"
         wordlist_path_ffuf = Path(SECLISTS_PATH) / "Discovery" / "DNS" / "subdomains-top1million-110000.txt"
 
         if custom_wordlist_path and Path(custom_wordlist_path).exists():
