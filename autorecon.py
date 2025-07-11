@@ -26,6 +26,7 @@ AMASS_CONFIG = Path.home() / '.config' / 'amass' / 'config.ini'
 HTTPX_CONFIG = Path.home() / '.config' / 'httpx' / 'config.yaml'
 NUCLEI_TEMPLATES_PATH = Path.home() / 'nuclei-templates'
 SECLISTS_PATH = '/usr/share/seclists' # General seclists path
+DIRB_PATH = '/usr/share/dirb/wordlists'
 
 def print_banner():
     """Prints the tool's banner."""
@@ -249,11 +250,10 @@ def filter_live_domains(main_target_domain):
         return
 
     live_subdomains_file = "domain.live"
-    ports = "80,81,82,443,444,8000,8080,8081,8443"
 
     # Run httpx once with all required flags
     success, output = run_command(
-        f"cat domains.txt | httpx -silent -ip -json -ports {ports}",
+        f"cat domains.txt | httpx -silent -ip -json ",
         silent=True, capture_output=True, check_install="httpx"
     )
 
@@ -381,8 +381,6 @@ def active_subdomain_enum(domain, custom_wordlist_path=None):
 
     except Exception as e:
         print(f"{RED}[!] Error in active subdomain enumeration: {e}{NC}")
-
-
 
 def crawl_urls(domain, domains_list, recursive=False, headers=None,
                enable_crawler=False, crawler_max_pages=10, crawler_output_format='json', crawler_headless=False):
@@ -516,39 +514,52 @@ def port_and_service_enum():
     else:
         print(f"{RED}[!] Failed to run naabu or output not found. Skipping detailed Nmap scan.{NC}")
 
-def web_content_discovery(domain):
-    """Performs web content discovery (directory brute-forcing) using gobuster."""
-    print(f"{YELLOW}[+] Running web content discovery (gobuster/dirsearch)...{NC}")
+def web_content_discovery(domain, custom_wordlist_path=None, threads=40):
+    """Performs web content discovery using ffuf."""
+    print(f"{YELLOW}[+] Running web content discovery using ffuf...{NC}")
+    
     if not os.path.exists("domain.live"):
         print(f"{RED}[!] domain.live not found. Skipping web content discovery.{NC}")
         return
 
-    wordlist = Path(SECLISTS_PATH) / "Discovery" / "Web-Content" / "common.txt"
-    if not wordlist.exists():
-        print(f"{RED}[!] Web content wordlist not found: {wordlist}. Please ensure Seclists is installed.{NC}")
-        return
+    wordlist_path = Path(DIRB_PATH) / "common.txt"
+    if custom_wordlist_path and Path(custom_wordlist_path).exists():
+        wordlist = str(custom_wordlist_path)
+        print(f"{BLUE}[+] Using custom wordlist: {custom_wordlist_path}{NC}")
+    else:
+        wordlist = str(wordlist_path)
+        if not Path(wordlist).exists():
+            print(f"{RED}[!] Default wordlist not found: {wordlist}. Ensure Seclists is installed.{NC}")
+            return
+        print(f"{BLUE}[+] Using default wordlist.{NC}")
 
     live_domains_list = []
     with open("domain.live", "r") as f:
         live_domains_list = [line.strip() for line in f if line.strip()]
 
-    gobuster_futures = []
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        for d in live_domains_list:
-            cmd = f"gobuster dir -u {d} -w {wordlist} -t 50 -k" 
-            print(f"{BLUE}[+] Running gobuster on {d}...{NC}")
-            gobuster_futures.append(executor.submit(run_command, cmd, silent=True, capture_output=True, check_install="gobuster"))
-    
-        all_discovered_paths_raw = set()
-        for i, future in enumerate(gobuster_futures):
-            success, gobuster_output = future.result()
-            if success and gobuster_output:
-                for line in gobuster_output.splitlines():
-                    match = re.match(r'^(/[^ ]+)', line.strip())
-                    if match:
-                        all_discovered_paths_raw.add(match.group(1))
-            else:
-                print(f"{RED}[!] One gobuster instance failed or had no output.{NC}")
+    all_discovered_paths_raw = set()
+
+    for d in live_domains_list:
+        output_file = f"/tmp/ffuf_{urlparse(d).netloc}.json"
+        cmd = (
+            f"ffuf -u {d}/FUZZ -w {wordlist} -t {threads} -o {output_file} -of json "
+        )
+        print(f"{BLUE}[+] Running ffuf on {d}...{NC}")
+        success, ffuf_output = run_command(cmd, silent=True, capture_output=True, check_install="ffuf")
+
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, "r") as f:
+                    ffuf_json = json.load(f)
+                    for result in ffuf_json.get("results", []):
+                        path = urlparse(result.get("url", "")).path
+                        if path:
+                            all_discovered_paths_raw.add(path)
+            except Exception as e:
+                print(f"{RED}[!] Failed to parse ffuf output for {d}: {e}{NC}")
+            os.remove(output_file)
+        else:
+            print(f"{RED}[!] ffuf did not produce output for {d}.{NC}")
 
     all_discovered_urls = set()
     for live_domain_url in live_domains_list:
@@ -559,13 +570,13 @@ def web_content_discovery(domain):
             all_discovered_urls.add(full_url)
 
     filtered_discovered_urls = filter_and_normalize_entries(all_discovered_urls, domain, entry_type="url")
-    
+
     if filtered_discovered_urls:
         with open("discovered_paths.txt", "w") as f:
             f.write("\n".join(sorted(filtered_discovered_urls)))
         print(f"{GREEN}[+] All discovered URLs (from web content discovery) saved to discovered_paths.txt{NC}")
     else:
-        print(f"{YELLOW}[!] No additional web content URLs found with gobuster.{NC}")
+        print(f"{YELLOW}[!] No additional web content URLs found with ffuf.{NC}")
 
 
 def vulnerability_scanning():
@@ -703,7 +714,7 @@ def js_secrets_and_endpoints_analysis():
         print(f"{YELLOW}[!] No secrets or sensitive data found in JavaScript files.{NC}")
 
 
-def autorecon(project_name=None, domains=None, crawl=False, recursive=False, headers=None, threads=4, enable_all_recon=False, custom_wordlist=None,
+def autorecon(project_name=None, domains=None, crawl=False, recursive=False, headers=None, threads=40, enable_all_recon=False, custom_wordlist=None,directory_wordlist=None,
               enable_crawler=False, crawler_max_pages=10, crawler_output_format='json', crawler_headless=False):
     """Main function to orchestrate the reconnaissance process."""
     print_banner()
@@ -766,7 +777,7 @@ def autorecon(project_name=None, domains=None, crawl=False, recursive=False, hea
 
             # Phase 6: Web Content Discovery
             if (args.web_content_discovery or enable_all_recon) and os.path.exists("domain.live"):
-                web_content_discovery(domain)
+                web_content_discovery(domain,custom_wordlist_path=directory_wordlist, threads=threads)
             
             # Phase 7: Parameter Discovery
             if (args.params_discovery or enable_all_recon) and os.path.exists("urls.txt"):
@@ -795,7 +806,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AutoRecon in Python")
     parser.add_argument("-n", "--project-name", help="Project name", required=True)
     parser.add_argument("-d", "--domains", nargs="*", help="List of domains (e.g., example.com sub.example.org)")
-    parser.add_argument("-w", "--wordlist", help="Path to a custom wordlist for DNS enumeration (dnsrecon) and FFUF (overrides default seclists wordlist)")
+    parser.add_argument("-w", "--wordlist", help="Path to a custom wordlist for DNS subdomain enumeration FFUF (overrides default seclists wordlist)")
+    parser.add_argument("-dw", "--directory-wordlist", help="Path to a custom wordlist for directory fuzzing FFUF (overrides default dirb wordlist)")
     parser.add_argument("--crawl", action="store_true", help="Enable URL discovery and crawling (waybackurls, katana, waymore, jslinks)")
     parser.add_argument("-active", action="store_true", help="Enable active subdomain enumeration (dnsrecon and ffuf)")
     parser.add_argument("-r", "--recursive", action="store_true", help="Enable recursive JS endpoint extraction (used with --crawl)")
@@ -837,6 +849,7 @@ if __name__ == "__main__":
         threads=args.threads,
         enable_all_recon=args.all_recon,
         custom_wordlist=args.wordlist,
+        directory_wordlist=args.directory_wordlist,
         enable_crawler=args.enable_crawler,
         crawler_max_pages=args.crawler_max_pages,
         crawler_output_format=args.crawler_output_format,
